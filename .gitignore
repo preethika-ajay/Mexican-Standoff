@@ -1,0 +1,97 @@
+# ============================================================
+# General C++ / OpenGL Project Git Ignore Template
+# ============================================================
+
+# --- Build & Output Directories ---
+build/
+Build/
+bin/
+Bin/
+out/
+Out/
+dist/
+Release/
+Debug/
+x64/
+x86/
+
+# --- CMake & Makefile Generated Files ---
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+Makefile
+Makefile.*
+*.cmake
+*.a
+*.so
+*.dll
+*.lib
+*.pdb
+*.exe
+
+# --- Visual Studio Specific ---
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.VC.opendb
+*.ipch
+*.ncb
+*.db
+*.opendb
+*.obj
+*.idb
+*.tlog
+*.log
+*.lastbuildstate
+*.ilk
+
+# --- IntelliJ / CLion / VSCode IDE Files ---
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+
+# --- Temporary Files ---
+*.tmp
+*.temp
+*.cache
+*.bak
+*.swp
+*.swo
+*~
+Thumbs.db
+.DS_Store
+
+# --- Shader / RenderDoc / Debug Dumps ---
+*.rtd
+*.renderdoc
+*.rdc
+*.trace
+*.json.tmp
+*.log.txt
+*.bin
+*.dmp
+
+# --- Miscellaneous ---
+*.zip
+*.tar
+*.gz
+*.7z
+*.rar
+*.old
+*.orig
+*.backup
+
+# --- Optional: Ignore local test assets or models ---
+assets/temp/
+textures/temp/
+models/temp/
+*.blend1
+*.blend@
+*.fbx
+*.obj~
+
