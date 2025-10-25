@@ -1,0 +1,11 @@
+# ground_plane.obj
+# Large square plane to approximate an infinite ground. Y up; plane at y = -1.0.
+# Two triangles. Increase extents if you need it larger.
+o GroundPlane
+v -200.0 -1.0 -200.0
+v  200.0 -1.0 -200.0
+v  200.0 -1.0  200.0
+v -200.0 -1.0  200.0
+# Faces (CCW winding from above)
+f 1 2 3
+f 1 3 4
