@@ -21,6 +21,7 @@ DISABLE_WARNINGS_POP()
 #include <cmath>
 #include <string>
 #include <algorithm>
+#include <stb/stb_image.h>
 
 // ---- Multi-light globals ----
 int selectedLightIndex = 0;
@@ -75,6 +76,16 @@ public:
         m_meshesA = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps.obj");
         m_meshesB = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps_mirrorX.obj");
         ground    = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/ground_plane.obj");
+
+        std::vector<std::string> faces = {
+        RESOURCE_ROOT "resources/right.jpg",   // positive x
+        RESOURCE_ROOT "resources/left.jpg",    // negative x
+        RESOURCE_ROOT "resources/top.jpg",     // positive y
+        RESOURCE_ROOT "resources/bottom.jpg",  // negative y
+        RESOURCE_ROOT "resources/front.jpg",   // positive z
+        RESOURCE_ROOT "resources/back.jpg"     // negative z
+        };
+        m_cubemapTexture = loadCubemap(faces);
 
         try {
             // Default shader (lit + shadows)
@@ -163,6 +174,16 @@ public:
                 ImGui::SliderFloat("Metallic", &m_metallic, 0.0f, 1.0f);
                 ImGui::SliderFloat("Roughness", &m_roughness, 0.05f, 1.0f);
                 ImGui::ColorEdit3("Albedo", glm::value_ptr(m_albedo));
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Material");
+            ImGui::SliderFloat("kd (diffuse)", &m_kd, 0.0f, 2.0f);
+            ImGui::SliderFloat("ks (specular)", &m_ks, 0.0f, 2.0f);
+            ImGui::SliderFloat("Shininess", &m_shininess, 1.0f, 256.0f);
+            ImGui::Checkbox("Enable Environment Map", &m_enableEnvironmentMap);  // ? Add this
+            if (m_enableEnvironmentMap) {
+                ImGui::SliderFloat("Reflectivity", &m_reflectivity, 0.0f, 1.0f);  // ? Add this
             }
 
             // Lights GUI
@@ -258,6 +279,45 @@ private:
     float m_metallic{ 0.2f };
     float m_roughness{ 0.4f };
     glm::vec3 m_albedo{ 0.8f, 0.6f, 0.4f };
+
+    GLuint m_cubemapTexture{ 0 };
+    bool m_enableEnvironmentMap{ false };
+    float m_reflectivity{ 0.5f };
+
+    GLuint loadCubemap(const std::vector<std::string>& faces)
+    {
+        GLuint textureID;
+        glGenTextures(1, &textureID);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+
+        int width, height, nrChannels;
+        for (unsigned int i = 0; i < faces.size(); i++)
+        {
+            unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 3); // Force 3 channels (RGB)
+            if (data)
+            {
+                glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+                    0, GL_RGB, width, height, 0,
+                    GL_RGB, GL_UNSIGNED_BYTE, data);
+                stbi_image_free(data);
+                std::cout << "Loaded cubemap face " << i << ": " << faces[i] << std::endl;
+            }
+            else
+            {
+                std::cerr << "Failed to load cubemap face: " << faces[i] << std::endl;
+                stbi_image_free(data);
+            }
+        }
+
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+        glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+        return textureID;
+    }
 
     void initShadowResources()
     {
@@ -460,6 +520,18 @@ private:
 
             glm::vec3 matColor = glm::vec3(0.8f);
             glUniform3fv(shader.getUniformLocation("materialColor"), 1, glm::value_ptr(matColor));
+
+            if (m_enableEnvironmentMap) {
+                int cubemapUnit = MAX_SHADOW_LIGHTS + 2;  // After normal map
+                glActiveTexture(GL_TEXTURE0 + cubemapUnit);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, m_cubemapTexture);
+                glUniform1i(shader.getUniformLocation("environmentMap"), cubemapUnit);
+                glUniform1i(shader.getUniformLocation("enableEnvironmentMap"), GL_TRUE);
+                glUniform1f(shader.getUniformLocation("reflectivity"), m_reflectivity);
+            }
+            else {
+                glUniform1i(shader.getUniformLocation("enableEnvironmentMap"), GL_FALSE);
+            }
 
             if (mesh.hasTextureCoords()) {
                 // Choose which texture to use based on toggle
