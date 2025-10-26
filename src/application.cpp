@@ -67,6 +67,248 @@ struct BezierCurve {
     }
 };
 
+struct WesternPrimitive {
+    enum Type { CUBE, CYLINDER, BLADE };
+    Type type;
+    glm::vec3 scale;
+    glm::vec3 color;
+
+    WesternPrimitive(Type t, glm::vec3 s, glm::vec3 c)
+        : type(t), scale(s), color(c) {
+    }
+};
+
+class WindmillNode {
+public:
+    std::string name;
+    WesternPrimitive primitive;
+
+    glm::vec3 localPosition{ 0.0f };
+    glm::vec3 localRotation{ 0.0f };
+    glm::vec3 localScale{ 1.0f };
+
+    glm::vec3 rotationAxis{ 0.0f, 0.0f, 1.0f };
+    float rotationSpeed{ 0.0f };
+    bool animateRotation{ false };
+
+    WindmillNode* parent{ nullptr };
+    std::vector<std::unique_ptr<WindmillNode>> children;
+
+    WindmillNode(const std::string& n, WesternPrimitive prim)
+        : name(n), primitive(prim) {
+    }
+
+    WindmillNode* addChild(std::unique_ptr<WindmillNode> child) {
+        child->parent = this;
+        children.push_back(std::move(child));
+        return children.back().get();
+    }
+
+    glm::mat4 getLocalTransform() const {
+        glm::mat4 T = glm::translate(glm::mat4(1.0f), localPosition);
+        glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), glm::radians(localRotation.x), glm::vec3(1, 0, 0));
+        glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), glm::radians(localRotation.y), glm::vec3(0, 1, 0));
+        glm::mat4 Rz = glm::rotate(glm::mat4(1.0f), glm::radians(localRotation.z), glm::vec3(0, 0, 1));
+        glm::mat4 S = glm::scale(glm::mat4(1.0f), localScale);
+        return T * Rz * Ry * Rx * S;
+    }
+
+    glm::mat4 getWorldTransform() const {
+        if (parent) {
+            return parent->getWorldTransform() * getLocalTransform();
+        }
+        return getLocalTransform();
+    }
+
+    void updateAnimation(float dt) {
+        if (animateRotation && rotationSpeed != 0.0f) {
+            if (rotationAxis.x > 0.5f) {
+                localRotation.x += rotationSpeed * dt;
+            }
+            else if (rotationAxis.y > 0.5f) {
+                localRotation.y += rotationSpeed * dt;
+            }
+            else if (rotationAxis.z > 0.5f) {
+                localRotation.z += rotationSpeed * dt;
+            }
+        }
+
+        for (auto& child : children) {
+            child->updateAnimation(dt);
+        }
+    }
+};
+
+class WesternWindmill {
+public:
+    std::unique_ptr<WindmillNode> root;
+    bool animationEnabled{ true };
+    float windSpeed{ 20.0f };
+
+    WesternWindmill() {
+        buildWindmill();
+    }
+
+    void buildWindmill() {
+        // Tower base
+        root = std::make_unique<WindmillNode>(
+            "TowerBase",
+            WesternPrimitive(WesternPrimitive::CUBE,
+                glm::vec3(0.8f, 0.3f, 0.8f),
+                glm::vec3(0.5f, 0.35f, 0.2f)) // Dark weathered wood
+        );
+        root->localPosition = glm::vec3(0.0f, -0.5f, 0.0f);
+
+        // Tower middle
+        auto towerMid = std::make_unique<WindmillNode>(
+            "TowerMiddle",
+            WesternPrimitive(WesternPrimitive::CYLINDER,
+                glm::vec3(0.6f, 2.0f, 0.6f),
+                glm::vec3(0.55f, 0.35f, 0.15f))
+        );
+        towerMid->localPosition = glm::vec3(0.0f, 0.5f, 0.0f);
+
+        // Tower top
+        auto towerTop = std::make_unique<WindmillNode>(
+            "TowerTop",
+            WesternPrimitive(WesternPrimitive::CYLINDER,
+                glm::vec3(0.5f, 1.5f, 0.5f),
+                glm::vec3(0.5f, 0.3f, 0.1f))
+        );
+        towerTop->localPosition = glm::vec3(0.0f, 2.0f, 0.0f);
+
+        // Platform
+        auto platform = std::make_unique<WindmillNode>(
+            "Platform",
+            WesternPrimitive(WesternPrimitive::CUBE,
+                glm::vec3(0.9f, 0.2f, 0.9f),
+                glm::vec3(0.4f, 0.25f, 0.1f))
+        );
+        platform->localPosition = glm::vec3(0.0f, 1.5f, 0.0f);
+
+        // Hub (rotates!)
+        auto hub = std::make_unique<WindmillNode>(
+            "Hub",
+            WesternPrimitive(WesternPrimitive::CYLINDER,
+                glm::vec3(0.3f, 0.3f, 0.3f),
+                glm::vec3(0.3f, 0.3f, 0.3f)) // Dark metal
+        );
+        hub->localPosition = glm::vec3(0.0f, 0.2f, 0.6f);
+        hub->animateRotation = true;
+        hub->rotationAxis = glm::vec3(0.0f, 0.0f, 1.0f);
+        hub->rotationSpeed = windSpeed;
+
+        // 4 Blades
+        auto blade1 = std::make_unique<WindmillNode>(
+            "Blade1",
+            WesternPrimitive(WesternPrimitive::BLADE,
+                glm::vec3(0.15f, 1.2f, 0.05f),
+                glm::vec3(0.7f, 0.6f, 0.5f)) // Light wood/metal
+        );
+        blade1->localPosition = glm::vec3(0.0f, 0.6f, 0.0f);
+
+        // Blade 2 (right)
+        auto blade2 = std::make_unique<WindmillNode>(
+            "Blade2",
+            WesternPrimitive(WesternPrimitive::BLADE,
+                glm::vec3(0.15f, 1.2f, 0.05f),
+                glm::vec3(0.7f, 0.6f, 0.5f))
+        );
+        blade2->localPosition = glm::vec3(0.6f, 0.0f, 0.0f);
+        blade2->localRotation = glm::vec3(0.0f, 0.0f, 90.0f); // Rotate 90 degrees
+
+        // Blade 3 (bottom)
+        auto blade3 = std::make_unique<WindmillNode>(
+            "Blade3",
+            WesternPrimitive(WesternPrimitive::BLADE,
+                glm::vec3(0.15f, 1.2f, 0.05f),
+                glm::vec3(0.7f, 0.6f, 0.5f))
+        );
+        blade3->localPosition = glm::vec3(0.0f, -0.6f, 0.0f);
+        blade3->localRotation = glm::vec3(0.0f, 0.0f, 180.0f);
+
+        // Blade 4 (left)
+        auto blade4 = std::make_unique<WindmillNode>(
+            "Blade4",
+            WesternPrimitive(WesternPrimitive::BLADE,
+                glm::vec3(0.15f, 1.2f, 0.05f),
+                glm::vec3(0.7f, 0.6f, 0.5f))
+        );
+        blade4->localPosition = glm::vec3(-0.6f, 0.0f, 0.0f);
+        blade4->localRotation = glm::vec3(0.0f, 0.0f, 270.0f);
+
+        // Support struts
+        auto strut1 = std::make_unique<WindmillNode>(
+            "Strut1",
+            WesternPrimitive(WesternPrimitive::CYLINDER,
+                glm::vec3(0.1f, 1.0f, 0.1f),
+                glm::vec3(0.4f, 0.25f, 0.1f))
+        );
+        strut1->localPosition = glm::vec3(0.3f, -0.3f, 0.3f);
+        strut1->localRotation = glm::vec3(45.0f, 0.0f, 30.0f);
+
+        auto strut2 = std::make_unique<WindmillNode>(
+            "Strut2",
+            WesternPrimitive(WesternPrimitive::CYLINDER,
+                glm::vec3(0.1f, 1.0f, 0.1f),
+                glm::vec3(0.4f, 0.25f, 0.1f))
+        );
+        strut2->localPosition = glm::vec3(-0.3f, -0.3f, 0.3f);
+        strut2->localRotation = glm::vec3(45.0f, 0.0f, -30.0f);
+
+        // Build hierarchy
+        hub->addChild(std::move(blade1));
+        hub->addChild(std::move(blade2));
+        hub->addChild(std::move(blade3));
+        hub->addChild(std::move(blade4));
+
+        platform->addChild(std::move(hub));
+        platform->addChild(std::move(strut1));
+        platform->addChild(std::move(strut2));
+
+        towerTop->addChild(std::move(platform));
+        towerMid->addChild(std::move(towerTop));
+        root->addChild(std::move(towerMid));
+    }
+
+    void update(float dt) {
+        if (animationEnabled && root) {
+            updateWindSpeed(windSpeed);
+            root->updateAnimation(dt);
+        }
+    }
+
+    void updateWindSpeed(float speed) {
+        if (root && !root->children.empty()) {
+            auto* towerMid = root->children[0].get();
+            if (!towerMid->children.empty()) {
+                auto* towerTop = towerMid->children[0].get();
+                if (!towerTop->children.empty()) {
+                    auto* platform = towerTop->children[0].get();
+                    if (!platform->children.empty()) {
+                        auto* hub = platform->children[0].get();
+                        hub->rotationSpeed = speed;
+                    }
+                }
+            }
+        }
+    }
+
+    void collectRenderData(std::vector<std::pair<WindmillNode*, glm::mat4>>& outData) {
+        if (root) {
+            collectNodeRenderData(root.get(), outData);
+        }
+    }
+
+private:
+    void collectNodeRenderData(WindmillNode* node, std::vector<std::pair<WindmillNode*, glm::mat4>>& outData) {
+        outData.push_back({ node, node->getWorldTransform() });
+        for (auto& child : node->children) {
+            collectNodeRenderData(child.get(), outData);
+        }
+    }
+};
+
 class BezierPath {
 public:
     std::vector<BezierCurve> curves;
@@ -260,6 +502,7 @@ public:
         selectedLightIndex = 0;
 
         initShadowResources();
+        initWindmillPrimitives();
     }
 
     void update()
@@ -276,6 +519,7 @@ public:
 
             handleContinuousKeyboard(dt);
             updatePathCamera(dt);
+            m_windmill.update(dt);
 
             // UI
             ImGui::Begin("Window");
@@ -330,6 +574,12 @@ public:
                     m_pathTime = 0.0f;
                 }
             }
+
+            ImGui::Separator();
+            ImGui::Text("Western Windmill");
+            ImGui::Checkbox("Enable Windmill Animation", &m_windmill.animationEnabled);
+            ImGui::SliderFloat("Wind Speed", &m_windmill.windSpeed, 0.0f, 100.0f);
+            ImGui::DragFloat3("Windmill Position", glm::value_ptr(m_windmillPosition), 0.1f, -20.0f, 20.0f);
 
             // Lights GUI
             ImGui::Separator();
@@ -402,8 +652,63 @@ public:
             renderModel(m_meshesA, modelMatrixA, /*isGround*/false);
             renderModel(m_meshesB, modelMatrixB, /*isGround*/false);
 
+            renderWindmill();
+
             m_window.swapBuffers();
         }
+    }
+
+    void renderWindmill() {
+        std::vector<std::pair<WindmillNode*, glm::mat4>> renderData;
+        m_windmill.collectRenderData(renderData);
+
+        glm::mat4 windmillWorldTransform = glm::translate(glm::mat4(1.0f), m_windmillPosition);
+
+        Shader& shader = m_defaultShader;
+        shader.bind();
+
+        int n = std::min((int)m_lights.size(), MAX_LIGHTS);
+        glm::vec3 lp[MAX_LIGHTS], lc[MAX_LIGHTS];
+        float li[MAX_LIGHTS];
+        for (int i = 0; i < n; ++i) {
+            lp[i] = m_lights[i].position;
+            lc[i] = m_lights[i].color;
+            li[i] = m_lights[i].intensity;
+        }
+
+        glUniform1i(shader.getUniformLocation("numLights"), n);
+        if (n > 0) {
+            glUniform3fv(shader.getUniformLocation("lightPosition"), n, glm::value_ptr(lp[0]));
+            glUniform3fv(shader.getUniformLocation("lightColor"), n, glm::value_ptr(lc[0]));
+            glUniform1fv(shader.getUniformLocation("lightIntensity"), n, li);
+        }
+        glUniform3fv(shader.getUniformLocation("viewPosition"), 1, glm::value_ptr(m_cameraPosition));
+        glUniform1f(shader.getUniformLocation("kd"), 0.7f);
+        glUniform1f(shader.getUniformLocation("ks"), 0.1f);
+        glUniform1f(shader.getUniformLocation("shininess"), 8.0f);
+        glUniform1i(shader.getUniformLocation("hasTexCoords"), GL_FALSE);
+        glUniform1i(shader.getUniformLocation("useMaterial"), GL_TRUE);
+        glUniform1i(shader.getUniformLocation("isGround"), 0);
+        glUniform1i(shader.getUniformLocation("numShadowMaps"), 0);
+
+        for (auto& [node, localTransform] : renderData) {
+            glm::mat4 finalTransform = windmillWorldTransform * localTransform;
+            glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), node->primitive.scale);
+            glm::mat4 modelMatrix = finalTransform * scaleMatrix;
+
+            glm::mat4 mvp = m_projectionMatrix * m_viewMatrix * modelMatrix;
+            glm::mat3 normalMatrix = glm::inverseTranspose(glm::mat3(modelMatrix));
+
+            glUniformMatrix4fv(shader.getUniformLocation("mvpMatrix"), 1, GL_FALSE, glm::value_ptr(mvp));
+            glUniformMatrix4fv(shader.getUniformLocation("modelMatrix"), 1, GL_FALSE, glm::value_ptr(modelMatrix));
+            glUniformMatrix3fv(shader.getUniformLocation("normalModelMatrix"), 1, GL_FALSE, glm::value_ptr(normalMatrix));
+            glUniform3fv(shader.getUniformLocation("materialColor"), 1, glm::value_ptr(node->primitive.color));
+
+            glBindVertexArray(m_cubeVAO);
+            glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
+        }
+
+        glBindVertexArray(0);
     }
 
     void initPathRendering() {
@@ -487,14 +792,18 @@ private:
     float m_reflectivity{ 0.5f };
 
     BezierPath m_cameraPath;
-     bool m_followPath{ false };
-     bool m_showPathCurve{ true };
-     float m_pathTime{ 0.0f };
-     float m_pathSpeed{ 0.5f };
-     GLuint m_pathVAO{ 0 };
-     GLuint m_pathVBO{ 0 };
-     std::vector<glm::vec3> m_pathLineSegments;
-     Shader m_pathShader;
+    bool m_followPath{ false };
+    bool m_showPathCurve{ true };
+    float m_pathTime{ 0.0f };
+    float m_pathSpeed{ 0.5f };
+    GLuint m_pathVAO{ 0 };
+    GLuint m_pathVBO{ 0 };
+    std::vector<glm::vec3> m_pathLineSegments;
+    Shader m_pathShader;
+
+    WesternWindmill m_windmill;
+    glm::vec3 m_windmillPosition{ -5.0f, 0.0f, -5.0f };
+    GLuint m_cubeVAO{ 0 }, m_cubeVBO{ 0 }, m_cubeIBO{ 0 };
 
     GLuint loadCubemap(const std::vector<std::string>& faces)
     {
@@ -558,6 +867,34 @@ private:
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    void initWindmillPrimitives() {
+        float cubeVertices[] = {
+            -0.5f, -0.5f, -0.5f,  0.5f, -0.5f, -0.5f,  0.5f,  0.5f, -0.5f, -0.5f,  0.5f, -0.5f,
+            -0.5f, -0.5f,  0.5f,  0.5f, -0.5f,  0.5f,  0.5f,  0.5f,  0.5f, -0.5f,  0.5f,  0.5f
+        };
+
+        unsigned int cubeIndices[] = {
+            0,1,2, 2,3,0, 1,5,6, 6,2,1, 5,4,7, 7,6,5,
+            4,0,3, 3,7,4, 3,2,6, 6,7,3, 4,5,1, 1,0,4
+        };
+
+        glGenVertexArrays(1, &m_cubeVAO);
+        glGenBuffers(1, &m_cubeVBO);
+        glGenBuffers(1, &m_cubeIBO);
+
+        glBindVertexArray(m_cubeVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, m_cubeVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_cubeIBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
+
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+
+        glBindVertexArray(0);
     }
 
     void resizeShadowResourcesIfNeeded()
