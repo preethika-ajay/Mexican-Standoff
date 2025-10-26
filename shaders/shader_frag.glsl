@@ -8,6 +8,7 @@ uniform sampler2D colorMap;
 uniform bool hasTexCoords;
 uniform bool useMaterial;
 uniform vec3 materialColor;
+uniform float shininess;
 
 uniform float kd;   // diffuse coefficient (0..1+)
 uniform float ks;   // specular coefficient (0..1+)
@@ -104,7 +105,6 @@ void main()
 
     float ambientStrength  = 0.08;
     float specularStrength = 0.25;
-    float shininess        = 32.0;
 
     vec3 rgb = vec3(0.0);
 

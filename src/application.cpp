@@ -59,17 +59,19 @@ public:
 
         // Keep projection & viewport in sync with window size/aspect
         m_window.registerWindowResizeCallback([this](const glm::ivec2& size) {
-            glViewport(0, 0, size.x, size.y);
-            m_projectionMatrix = glm::perspective(glm::radians(80.0f),
-                                                  float(size.x) / float(size.y),
-                                                  0.1f, 30.0f);
-        });
+            int w = std::max(size.x, 1);
+            int h = std::max(size.y, 1);
+            glViewport(0, 0, w, h);
+            float aspect = float(w) / float(h);
+            m_projectionMatrix = glm::perspective(glm::radians(80.0f), aspect, 0.1f, 30.0f);
+            });
+
+        m_window.registerScrollCallback(std::bind(&Application::onScroll, this, std::placeholders::_1));
 
         // Load models
         m_meshesA = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps.obj");
         m_meshesB = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps_mirrorX.obj");
         ground    = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/ground_plane.obj");
-
 
         try {
             // Default shader (lit + shadows)
@@ -89,6 +91,11 @@ public:
             lp.addStage(GL_VERTEX_SHADER,   RESOURCE_ROOT "shaders/light_point_vert.glsl");
             lp.addStage(GL_FRAGMENT_SHADER, RESOURCE_ROOT "shaders/light_point_frag.glsl");
             m_lightPointShader = lp.build();
+
+            ShaderBuilder pbrBuilder;
+            pbrBuilder.addStage(GL_VERTEX_SHADER, RESOURCE_ROOT "shaders/pbr_vert.glsl");
+            pbrBuilder.addStage(GL_FRAGMENT_SHADER, RESOURCE_ROOT "shaders/pbr_frag.glsl");
+            m_pbrShader = pbrBuilder.build();
 
         } catch (const ShaderLoadingException& e) {
             std::cerr << e.what() << std::endl;
@@ -123,9 +130,6 @@ public:
 
             handleContinuousKeyboard(dt);
 
-            m_cameraTarget = m_cameraPosition + m_cameraFront;
-            m_viewMatrix   = glm::lookAt(m_cameraPosition, m_cameraTarget, m_cameraUp);
-
             // UI
             ImGui::Begin("Window");
             ImGui::InputInt("This is an integer input", &dummyInteger);
@@ -148,7 +152,13 @@ public:
             ImGui::Text("Material");
             ImGui::SliderFloat("kd (diffuse)",  &m_kd, 0.0f, 2.0f);
             ImGui::SliderFloat("ks (specular)", &m_ks, 0.0f, 2.0f);
+            ImGui::SliderFloat("Shininess", &m_shininess, 1.0f, 256.0f);
 
+            if (m_enablePBR) {
+                ImGui::SliderFloat("Metallic", &m_metallic, 0.0f, 1.0f);
+                ImGui::SliderFloat("Roughness", &m_roughness, 0.05f, 1.0f);
+                ImGui::ColorEdit3("Albedo", glm::value_ptr(m_albedo));
+            }
 
             // Lights GUI
             ImGui::Separator();
@@ -177,7 +187,26 @@ public:
             ImGui::SliderFloat("PCF texel scale", &m_pcfTexelScale, 0.5f, 3.0f);
             ImGui::SliderFloat("Shadow bias", &m_shadowBias, 0.0005f, 0.02f);
             ImGui::SliderFloat("Parallel-skip threshold", &m_shadowMinNdotL, 0.0f, 0.2f);
+
+            ImGui::Separator();
+            ImGui::Text("Viewpoints");
+            const char* viewItems[] = { "Default", "Top", "Third-Person" };
+            int currentView = static_cast<int>(m_viewMode);
+            if (ImGui::Combo("Active View", &currentView, viewItems, IM_ARRAYSIZE(viewItems))) {
+                m_viewMode = static_cast<ViewMode>(currentView);
+            }
+
+            ImGui::Separator();
+            ImGui::Checkbox("Enable Trackball Camera", &m_trackballEnabled);
+            ImGui::SliderFloat("Trackball Distance", &m_distanceFromTarget, 1.0f, 20.0f);
+
+            ImGui::Separator();
+            ImGui::Text("Advanced Shading");
+            ImGui::Checkbox("Enable PBR Shader", &m_enablePBR);
+
             ImGui::End();
+
+            updateCameraViewMode();
 
             // Resize shadow maps if needed
             resizeShadowResourcesIfNeeded();
@@ -218,6 +247,12 @@ private:
     float m_pcfTexelScale  = 1.0f;
     float m_shadowBias     = 0.0025f;
     float m_shadowMinNdotL = 0.08f; // NEW: parallel-skip threshold for ground shadows
+    Shader m_pbrShader;
+    bool   m_enablePBR{ false };
+
+    float m_metallic{ 0.2f };
+    float m_roughness{ 0.4f };
+    glm::vec3 m_albedo{ 0.8f, 0.6f, 0.4f };
 
     void initShadowResources()
     {
@@ -379,51 +414,59 @@ private:
         glActiveTexture(GL_TEXTURE0);
 
         for (GPUMesh& mesh : meshes) {
-            m_defaultShader.bind();
+            Shader& shader = m_enablePBR ? m_pbrShader : m_defaultShader;
+            shader.bind();
 
-            glUniformMatrix4fv(m_defaultShader.getUniformLocation("mvpMatrix"),         1, GL_FALSE, glm::value_ptr(mvpMatrix));
-            glUniformMatrix4fv(m_defaultShader.getUniformLocation("modelMatrix"),       1, GL_FALSE, glm::value_ptr(modelMatrix));
-            glUniformMatrix3fv(m_defaultShader.getUniformLocation("normalModelMatrix"), 1, GL_FALSE, glm::value_ptr(normalModelMatrix));
+            glUniformMatrix4fv(shader.getUniformLocation("mvpMatrix"),         1, GL_FALSE, glm::value_ptr(mvpMatrix));
+            glUniformMatrix4fv(shader.getUniformLocation("modelMatrix"),       1, GL_FALSE, glm::value_ptr(modelMatrix));
+            glUniformMatrix3fv(shader.getUniformLocation("normalModelMatrix"), 1, GL_FALSE, glm::value_ptr(normalModelMatrix));
 
-            glUniform1i (m_defaultShader.getUniformLocation("numLights"), n);
+            glUniform1i (shader.getUniformLocation("numLights"), n);
             if (n > 0) {
-                glUniform3fv(m_defaultShader.getUniformLocation("lightPosition"),  n, glm::value_ptr(lp[0]));
-                glUniform3fv(m_defaultShader.getUniformLocation("lightColor"),     n, glm::value_ptr(lc[0]));
-                glUniform1fv(m_defaultShader.getUniformLocation("lightIntensity"), n, li);
+                glUniform3fv(shader.getUniformLocation("lightPosition"),  n, glm::value_ptr(lp[0]));
+                glUniform3fv(shader.getUniformLocation("lightColor"),     n, glm::value_ptr(lc[0]));
+                glUniform1fv(shader.getUniformLocation("lightIntensity"), n, li);
             }
-            glUniform3fv(m_defaultShader.getUniformLocation("viewPosition"), 1, glm::value_ptr(m_cameraPosition));
+            glUniform3fv(shader.getUniformLocation("viewPosition"), 1, glm::value_ptr(m_cameraPosition));
 
-            glUniform1f(m_defaultShader.getUniformLocation("kd"), m_kd);
-            glUniform1f(m_defaultShader.getUniformLocation("ks"), m_ks);
+            glUniform1f(shader.getUniformLocation("kd"), m_kd);
+            glUniform1f(shader.getUniformLocation("ks"), m_ks);
+            glUniform1f(shader.getUniformLocation("shininess"), m_shininess);
 
-            glUniform1i(m_defaultShader.getUniformLocation("numShadowMaps"), sN);
+            glUniform1i(shader.getUniformLocation("numShadowMaps"), sN);
             if (sN > 0) {
                 for (int i = 0; i < sN; ++i) {
                     std::string name = "shadowMaps[" + std::to_string(i) + "]";
-                    glUniform1i(m_defaultShader.getUniformLocation(name.c_str()), 1 + i);
+                    glUniform1i(shader.getUniformLocation(name.c_str()), 1 + i);
                 }
-                glUniformMatrix4fv(m_defaultShader.getUniformLocation("lightViewProj"), sN, GL_FALSE, glm::value_ptr(lvp[0]));
-                glUniform2f(m_defaultShader.getUniformLocation("shadowTexelSize"),
+                glUniformMatrix4fv(shader.getUniformLocation("lightViewProj"), sN, GL_FALSE, glm::value_ptr(lvp[0]));
+                glUniform2f(shader.getUniformLocation("shadowTexelSize"),
                             m_pcfTexelScale / float(m_shadowMapSize),
                             m_pcfTexelScale / float(m_shadowMapSize));
-                glUniform1f(m_defaultShader.getUniformLocation("shadowBias"), m_shadowBias);
-                glUniform1f(m_defaultShader.getUniformLocation("shadowMinNdotL"), m_shadowMinNdotL); // NEW
+                glUniform1f(shader.getUniformLocation("shadowBias"), m_shadowBias);
+                glUniform1f(shader.getUniformLocation("shadowMinNdotL"), m_shadowMinNdotL); // NEW
             }
-            glUniform1i(m_defaultShader.getUniformLocation("isGround"), isGround ? 1 : 0);
+            glUniform1i(shader.getUniformLocation("isGround"), isGround ? 1 : 0);
 
             glm::vec3 matColor = glm::vec3(0.8f);
-            glUniform3fv(m_defaultShader.getUniformLocation("materialColor"), 1, glm::value_ptr(matColor));
+            glUniform3fv(shader.getUniformLocation("materialColor"), 1, glm::value_ptr(matColor));
 
             if (mesh.hasTextureCoords()) {
                 m_texture.bind(GL_TEXTURE0);
-                glUniform1i(m_defaultShader.getUniformLocation("colorMap"),     0);
-                glUniform1i(m_defaultShader.getUniformLocation("hasTexCoords"), GL_TRUE);
-                glUniform1i(m_defaultShader.getUniformLocation("useMaterial"),  GL_FALSE);
+                glUniform1i(shader.getUniformLocation("colorMap"),     0);
+                glUniform1i(shader.getUniformLocation("hasTexCoords"), GL_TRUE);
+                glUniform1i(shader.getUniformLocation("useMaterial"),  GL_FALSE);
             } else {
-                glUniform1i(m_defaultShader.getUniformLocation("hasTexCoords"), GL_FALSE);
-                glUniform1i(m_defaultShader.getUniformLocation("useMaterial"),  m_useMaterial);
+                glUniform1i(shader.getUniformLocation("hasTexCoords"), GL_FALSE);
+                glUniform1i(shader.getUniformLocation("useMaterial"),  m_useMaterial);
             }
-
+            if (m_enablePBR) {
+                glUniform1f(shader.getUniformLocation("metallic"), m_metallic);
+                glUniform1f(shader.getUniformLocation("roughness"), m_roughness);
+                glUniform3fv(shader.getUniformLocation("albedo"), 1, glm::value_ptr(m_albedo));
+                glUniform1f(shader.getUniformLocation("kd"), m_kd);
+                glUniform1f(shader.getUniformLocation("ks"), m_ks);
+            }
             mesh.draw(m_defaultShader);
         }
 
@@ -432,7 +475,63 @@ private:
         glActiveTexture(GL_TEXTURE0);
     }
 
+    void updateCameraViewMode()
+    {
+        switch (m_viewMode) {
+        case ViewMode::Default:
+            // FPS-style camera: look from position toward front
+            m_cameraTarget = m_cameraPosition + m_cameraFront;
+            m_cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
+            m_viewMatrix = glm::lookAt(m_cameraPosition, m_cameraTarget, m_cameraUp);
+            break;
+
+        case ViewMode::Top:
+            // Static top-down camera looking at the origin
+            m_cameraPosition = glm::vec3(0.0f, 10.0f, 0.01f); // small Z offset to avoid singularity
+            m_cameraTarget = glm::vec3(0.0f, 0.0f, 0.0f);
+            m_cameraUp = glm::vec3(0.0f, 0.0f, -1.0f);  // look downward
+            m_viewMatrix = glm::lookAt(m_cameraPosition, m_cameraTarget, m_cameraUp);
+            break;
+
+        case ViewMode::ThirdPerson:
+            // Third-person camera behind the left model
+        {
+            glm::vec3 focusPoint = glm::vec3(-m_modelDistance * 0.5f, 1.5f, 0.0f);
+            glm::vec3 offset = glm::vec3(0.0f, 2.0f, 5.0f);
+            m_cameraPosition = focusPoint + offset;
+            m_cameraTarget = focusPoint;
+            m_cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
+            m_viewMatrix = glm::lookAt(m_cameraPosition, m_cameraTarget, m_cameraUp);
+        }
+        break;
+        }
+
+        // Trackball overrides whichever view is selected
+        if (m_trackballEnabled) {
+            glm::vec3 focusPoint(0.0f, 1.0f, 0.0f);
+            float radYaw = glm::radians(m_yaw);
+            float radPitch = glm::radians(m_pitch);
+
+            m_cameraPosition.x = focusPoint.x + m_distanceFromTarget * std::cos(radPitch) * std::sin(radYaw);
+            m_cameraPosition.y = focusPoint.y + m_distanceFromTarget * std::sin(radPitch);
+            m_cameraPosition.z = focusPoint.z + m_distanceFromTarget * std::cos(radPitch) * std::cos(radYaw);
+            m_cameraTarget = focusPoint;
+            m_cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
+            m_viewMatrix = glm::lookAt(m_cameraPosition, m_cameraTarget, m_cameraUp);
+        }
+    }
+
+
+
     // ---------- Events ----------
+
+    void onScroll(const glm::dvec2& offset)
+    {
+        if (m_trackballEnabled) {
+            m_distanceFromTarget -= static_cast<float>(offset.y) * 0.5f;
+            m_distanceFromTarget = glm::clamp(m_distanceFromTarget, 1.0f, 20.0f);
+        }
+    }
 
     void onKeyPressed(int key, int mods)
     {
@@ -473,18 +572,41 @@ private:
     void onMouseMove(const glm::dvec2& cursorPos)
     {
         if (!m_haveLastCursor) { m_lastCursor = cursorPos; m_haveLastCursor = true; }
+        glm::dvec2 d = cursorPos - m_lastCursor;
+
         if (m_rotating) {
-            glm::dvec2 d = cursorPos - m_lastCursor;
-            m_yaw   += (float)d.x * m_mouseSensitivity * 10.0f;
+            // FPS camera look
+            m_yaw += (float)d.x * m_mouseSensitivity * 10.0f;
             m_pitch -= (float)d.y * m_mouseSensitivity * 10.0f;
             m_pitch = glm::clamp(m_pitch, -89.0f, 89.0f);
             updateFrontFromYawPitch();
         }
+
+        if (m_trackballRotating) {
+            float rotSpeed = 0.25f;
+            m_yaw += (float)d.x * rotSpeed;
+            m_pitch += (float)d.y * rotSpeed;
+            m_pitch = glm::clamp(m_pitch, -89.0f, 89.0f);
+        }
+
         m_lastCursor = cursorPos;
     }
 
-    void onMouseClicked(int button, int /*mods*/)  { if (button == GLFW_MOUSE_BUTTON_RIGHT) m_rotating = true; }
-    void onMouseReleased(int button, int /*mods*/) { if (button == GLFW_MOUSE_BUTTON_RIGHT) m_rotating = false; }
+
+    void onMouseClicked(int button, int /*mods*/) {
+        if (button == GLFW_MOUSE_BUTTON_RIGHT)
+            m_rotating = true; // existing FPS camera look
+        if (button == GLFW_MOUSE_BUTTON_LEFT && m_trackballEnabled)
+            m_trackballRotating = true; // start orbiting
+    }
+
+    void onMouseReleased(int button, int /*mods*/) {
+        if (button == GLFW_MOUSE_BUTTON_RIGHT)
+            m_rotating = false;
+        if (button == GLFW_MOUSE_BUTTON_LEFT)
+            m_trackballRotating = false;
+    }
+
 
 private:
     Window m_window;
@@ -511,8 +633,19 @@ private:
     float     m_mouseSensitivity { 0.05f };
     float     m_moveSpeed { 2.0f };
 
+    // --- Trackball Camera ---
+    bool  m_trackballEnabled{ false };
+    float m_distanceFromTarget{ 5.0f }; // how far the camera orbits from focus
+    glm::vec2 m_trackballPrev{ 0.0f };
+    bool  m_trackballRotating{ false };
+
+    // --- Multiple Viewpoints ---
+    enum class ViewMode { Default, Top, ThirdPerson };
+    ViewMode m_viewMode{ ViewMode::Default };
+
     float m_kd { 1.0f };  // diffuse coefficient
     float m_ks { 0.25f }; // specular coefficient
+    float m_shininess{ 32.0f };
 
     // Mouse-look state
     bool        m_rotating { false };
