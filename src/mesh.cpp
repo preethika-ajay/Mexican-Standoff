@@ -5,7 +5,75 @@ DISABLE_WARNINGS_PUSH()
 DISABLE_WARNINGS_POP()
 #include <iostream>
 #include <vector>
+#include <glm/geometric.hpp>
+#include <unordered_map>
 
+
+
+// Recompute smooth vertex normals (grouped by exact position).
+// This averages the accumulated face normals across all vertices that share
+// the same 3D position, which "merges" shading across split vertices that
+// OBJ often creates (e.g., by texcoord/normal indices).
+static void recomputeSmoothNormals(Mesh& m)
+{
+    // Zero out normals
+    for (auto& v : m.vertices)
+        v.normal = glm::vec3(0.0f);
+
+    // Accumulate (unit) face normals per vertex
+    for (const glm::uvec3& tri : m.triangles) {
+        const glm::vec3& p0 = m.vertices[tri.x].position;
+        const glm::vec3& p1 = m.vertices[tri.y].position;
+        const glm::vec3& p2 = m.vertices[tri.z].position;
+
+        glm::vec3 n = glm::cross(p1 - p0, p2 - p0);
+        float len2 = glm::dot(n, n);
+        if (len2 > 0.0f) n /= std::sqrt(len2); // normalize
+
+        m.vertices[tri.x].normal += n;
+        m.vertices[tri.y].normal += n;
+        m.vertices[tri.z].normal += n;
+    }
+
+    // Average across duplicate positions (OBJ often duplicates verts)
+    struct Vec3Hash {
+        size_t operator()(const glm::vec3& v) const noexcept {
+            auto h1 = std::hash<float>{}(v.x);
+            auto h2 = std::hash<float>{}(v.y);
+            auto h3 = std::hash<float>{}(v.z);
+            // simple mix
+            return ((h1 * 1315423911u) ^ (h2 + 0x9e3779b9 + (h1<<6) + (h1>>2))) ^ h3;
+        }
+    };
+    struct Vec3Eq {
+        bool operator()(const glm::vec3& a, const glm::vec3& b) const noexcept {
+            return a.x == b.x && a.y == b.y && a.z == b.z;
+        }
+    };
+
+    std::unordered_map<glm::vec3, glm::vec3, Vec3Hash, Vec3Eq> sumByPos;
+    std::unordered_map<glm::vec3, int,      Vec3Hash, Vec3Eq> countByPos;
+
+    for (const auto& v : m.vertices) {
+        auto it = sumByPos.find(v.position);
+        if (it == sumByPos.end()) {
+            sumByPos.emplace(v.position, v.normal);
+            countByPos.emplace(v.position, 1);
+        } else {
+            it->second += v.normal;
+            countByPos[v.position] += 1;
+        }
+    }
+
+    for (auto& v : m.vertices) {
+        glm::vec3 sum = sumByPos[v.position];
+        int cnt = countByPos[v.position];
+        glm::vec3 avg = (cnt > 0) ? (sum / float(cnt)) : v.normal;
+        float l2 = glm::dot(avg, avg);
+        if (l2 > 0.0f) avg /= std::sqrt(l2);
+        v.normal = avg;
+    }
+}
 GPUMaterial::GPUMaterial(const Material& material) :
     kd(material.kd),
     ks(material.ks),
@@ -75,11 +143,17 @@ std::vector<GPUMesh> GPUMesh::loadMeshGPU(std::filesystem::path filePath, bool n
     if (!std::filesystem::exists(filePath))
         throw MeshLoadingException(fmt::format("File {} does not exist", filePath.string().c_str()));
 
-    // Generate GPU-side meshes for all sub-meshes
+    // Load all sub-meshes on CPU
     std::vector<Mesh> subMeshes = loadMesh(filePath, { .normalizeVertexPositions = normalize });
     std::vector<GPUMesh> gpuMeshes;
-    for (const Mesh& mesh : subMeshes) { gpuMeshes.emplace_back(mesh); }
-    
+    gpuMeshes.reserve(subMeshes.size());
+
+    for (Mesh meshCopy : subMeshes) {
+        // Force smooth shading regardless of OBJ-provided normals
+        recomputeSmoothNormals(meshCopy);
+        gpuMeshes.emplace_back(meshCopy);
+    }
+
     return gpuMeshes;
 }
 
