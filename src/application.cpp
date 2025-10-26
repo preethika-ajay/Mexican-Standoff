@@ -33,6 +33,130 @@ struct PointLight {
     float     pointSize{ 18.0f }; // for the on-screen orb only
 };
 
+struct BezierCurve {
+    glm::vec3 p0, p1, p2, p3; // Control points
+
+    // Evaluate cubic Bézier curve at parameter t (0 to 1)
+    glm::vec3 evaluate(float t) const {
+        float u = 1.0f - t;
+        float tt = t * t;
+        float uu = u * u;
+        float uuu = uu * u;
+        float ttt = tt * t;
+
+        glm::vec3 point = uuu * p0;           // (1-t)³ * P0
+        point += 3.0f * uu * t * p1;          // 3(1-t)²t * P1
+        point += 3.0f * u * tt * p2;          // 3(1-t)t² * P2
+        point += ttt * p3;                     // t³ * P3
+
+        return point;
+    }
+
+    // Get tangent vector at parameter t
+    glm::vec3 tangent(float t) const {
+        float u = 1.0f - t;
+        float tt = t * t;
+        float uu = u * u;
+
+        glm::vec3 tangent = -3.0f * uu * p0;
+        tangent += 3.0f * uu * p1 - 6.0f * u * t * p1;
+        tangent += 6.0f * u * t * p2 - 3.0f * tt * p2;
+        tangent += 3.0f * tt * p3;
+
+        return glm::normalize(tangent);
+    }
+};
+
+class BezierPath {
+public:
+    std::vector<BezierCurve> curves;
+
+    BezierPath() {
+        // Create a smooth camera path with 3+ cubic Bézier curves
+        // These create a swooping camera motion around the scene
+
+        // Curve 1: Start -> upper right
+        curves.push_back({
+            glm::vec3(5.0f, 3.0f, 5.0f),   // p0
+            glm::vec3(5.0f, 5.0f, 3.0f),   // p1
+            glm::vec3(3.0f, 6.0f, 0.0f),   // p2
+            glm::vec3(0.0f, 5.0f, -3.0f)   // p3
+            });
+
+        // Curve 2: Right -> back
+        curves.push_back({
+            glm::vec3(0.0f, 5.0f, -3.0f),   // p0 (same as previous p3)
+            glm::vec3(-2.0f, 4.0f, -5.0f),  // p1
+            glm::vec3(-4.0f, 3.0f, -5.0f),  // p2
+            glm::vec3(-5.0f, 2.0f, -3.0f)   // p3
+            });
+
+        // Curve 3: Back -> left
+        curves.push_back({
+            glm::vec3(-5.0f, 2.0f, -3.0f),  // p0
+            glm::vec3(-6.0f, 2.0f, 0.0f),   // p1
+            glm::vec3(-5.0f, 3.0f, 3.0f),   // p2
+            glm::vec3(-3.0f, 4.0f, 5.0f)    // p3
+            });
+
+        // Curve 4: Left -> front (completing the loop)
+        curves.push_back({
+            glm::vec3(-3.0f, 4.0f, 5.0f),   // p0
+            glm::vec3(0.0f, 5.0f, 6.0f),    // p1
+            glm::vec3(3.0f, 4.0f, 6.0f),    // p2
+            glm::vec3(5.0f, 3.0f, 5.0f)     // p3 (loops back to start)
+            });
+    }
+
+    // Get total number of curves
+    int numCurves() const {
+        return static_cast<int>(curves.size());
+    }
+
+    // Evaluate path at global parameter t (0 to numCurves)
+    glm::vec3 evaluate(float t) const {
+        if (curves.empty()) return glm::vec3(0.0f);
+
+        // Wrap t to loop the path
+        t = std::fmod(t, static_cast<float>(curves.size()));
+        if (t < 0.0f) t += curves.size();
+
+        int curveIndex = static_cast<int>(std::floor(t));
+        float localT = t - curveIndex;
+
+        curveIndex = curveIndex % curves.size();
+        return curves[curveIndex].evaluate(localT);
+    }
+
+    // Get tangent at global parameter t
+    glm::vec3 tangent(float t) const {
+        if (curves.empty()) return glm::vec3(0.0f, 0.0f, 1.0f);
+
+        t = std::fmod(t, static_cast<float>(curves.size()));
+        if (t < 0.0f) t += curves.size();
+
+        int curveIndex = static_cast<int>(std::floor(t));
+        float localT = t - curveIndex;
+
+        curveIndex = curveIndex % curves.size();
+        return curves[curveIndex].tangent(localT);
+    }
+
+    // Generate line segments for rendering the curve
+    std::vector<glm::vec3> generateLineSegments(int segmentsPerCurve = 20) const {
+        std::vector<glm::vec3> points;
+
+        for (const auto& curve : curves) {
+            for (int i = 0; i <= segmentsPerCurve; ++i) {
+                float t = static_cast<float>(i) / segmentsPerCurve;
+                points.push_back(curve.evaluate(t));
+            }
+        }
+
+        return points;
+    }
+};
+
 class Application {
 public:
     Application()
@@ -111,6 +235,14 @@ public:
             pbrBuilder.addStage(GL_FRAGMENT_SHADER, RESOURCE_ROOT "shaders/pbr_frag.glsl");
             m_pbrShader = pbrBuilder.build();
 
+            ShaderBuilder pathBuilder;
+            pathBuilder.addStage(GL_VERTEX_SHADER, RESOURCE_ROOT "shaders/path_vert.glsl");
+            pathBuilder.addStage(GL_FRAGMENT_SHADER, RESOURCE_ROOT "shaders/path_frag.glsl");
+            m_pathShader = pathBuilder.build();
+
+            // Initialize path rendering
+            initPathRendering();
+
         } catch (const ShaderLoadingException& e) {
             std::cerr << e.what() << std::endl;
         }
@@ -143,6 +275,7 @@ public:
             dt = glm::clamp(dt, 0.0f, 0.05f);
 
             handleContinuousKeyboard(dt);
+            updatePathCamera(dt);
 
             // UI
             ImGui::Begin("Window");
@@ -184,6 +317,18 @@ public:
             ImGui::Checkbox("Enable Environment Map", &m_enableEnvironmentMap);  // ? Add this
             if (m_enableEnvironmentMap) {
                 ImGui::SliderFloat("Reflectivity", &m_reflectivity, 0.0f, 1.0f);  // ? Add this
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Bézier Camera Path");
+            ImGui::Checkbox("Follow Path", &m_followPath);
+            ImGui::Checkbox("Show Path Curve", &m_showPathCurve);
+            if (m_followPath) {
+                ImGui::SliderFloat("Path Speed", &m_pathSpeed, 0.1f, 2.0f);
+                ImGui::Text("Path Time: %.2f", m_pathTime);
+                if (ImGui::Button("Reset Path Position")) {
+                    m_pathTime = 0.0f;
+                }
             }
 
             // Lights GUI
@@ -246,6 +391,7 @@ public:
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             renderLightPoints();
+            renderPathCurve();
 
             // Ground (receives shadows)
             renderModel(ground, glm::mat4(1.0f), /*isGround*/true);
@@ -258,6 +404,62 @@ public:
 
             m_window.swapBuffers();
         }
+    }
+
+    void initPathRendering() {
+        m_pathLineSegments = m_cameraPath.generateLineSegments(30); // 30 segments per curve
+
+        glGenVertexArrays(1, &m_pathVAO);
+        glGenBuffers(1, &m_pathVBO);
+
+        glBindVertexArray(m_pathVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, m_pathVBO);
+        glBufferData(GL_ARRAY_BUFFER,
+            m_pathLineSegments.size() * sizeof(glm::vec3),
+            m_pathLineSegments.data(),
+            GL_STATIC_DRAW);
+
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), nullptr);
+
+        glBindVertexArray(0);
+    }
+
+    void updatePathCamera(float dt) {
+        if (!m_followPath) return;
+
+        m_pathTime += dt * m_pathSpeed;
+
+        // Update camera position from path
+        m_cameraPosition = m_cameraPath.evaluate(m_pathTime);
+
+        // Look at scene center
+        glm::vec3 sceneCenter(0.0f, 1.0f, 0.0f);
+        m_cameraFront = glm::normalize(sceneCenter - m_cameraPosition);
+
+        // Update yaw/pitch to match
+        m_yaw = glm::degrees(std::atan2(m_cameraFront.z, m_cameraFront.x));
+        m_pitch = glm::degrees(std::asin(glm::clamp(m_cameraFront.y, -1.0f, 1.0f)));
+    }
+
+    void renderPathCurve() {
+        if (!m_showPathCurve) return;
+
+        m_pathShader.bind();
+
+        glm::mat4 vp = m_projectionMatrix * m_viewMatrix;
+        glUniformMatrix4fv(m_pathShader.getUniformLocation("viewProj"),
+            1, GL_FALSE, glm::value_ptr(vp));
+
+        glm::vec3 pathColor(1.0f, 1.0f, 0.0f); // Yellow
+        glUniform3fv(m_pathShader.getUniformLocation("pathColor"),
+            1, glm::value_ptr(pathColor));
+
+        glBindVertexArray(m_pathVAO);
+        glLineWidth(3.0f);
+        glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(m_pathLineSegments.size()));
+        glLineWidth(1.0f);
+        glBindVertexArray(0);
     }
 
 private:
@@ -283,6 +485,16 @@ private:
     GLuint m_cubemapTexture{ 0 };
     bool m_enableEnvironmentMap{ false };
     float m_reflectivity{ 0.5f };
+
+    BezierPath m_cameraPath;
+     bool m_followPath{ false };
+     bool m_showPathCurve{ true };
+     float m_pathTime{ 0.0f };
+     float m_pathSpeed{ 0.5f };
+     GLuint m_pathVAO{ 0 };
+     GLuint m_pathVBO{ 0 };
+     std::vector<glm::vec3> m_pathLineSegments;
+     Shader m_pathShader;
 
     GLuint loadCubemap(const std::vector<std::string>& faces)
     {
