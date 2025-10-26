@@ -81,18 +81,67 @@ GPUMaterial::GPUMaterial(const Material& material) :
     transparency(material.transparency)
 {}
 
+// Add this function before GPUMesh::loadMeshGPU
+static void generatePlanarUVs(Mesh& m)
+{
+    if (m.vertices.empty()) return;
+
+    // Find bounding box
+    glm::vec3 minPos = m.vertices[0].position;
+    glm::vec3 maxPos = m.vertices[0].position;
+
+    for (const auto& v : m.vertices) {
+        minPos = glm::min(minPos, v.position);
+        maxPos = glm::max(maxPos, v.position);
+    }
+
+    glm::vec3 size = maxPos - minPos;
+    float maxSize = std::max(std::max(size.x, size.y), size.z);
+    if (maxSize < 1e-6f) maxSize = 1.0f;
+
+    // Generate planar UVs based on XZ coordinates (good for characters standing upright)
+    for (auto& v : m.vertices) {
+        v.texCoord.x = (v.position.x - minPos.x) / maxSize;
+        v.texCoord.y = (v.position.z - minPos.z) / maxSize;
+    }
+
+    std::cout << "Generated planar UVs for mesh\n";
+}
+
 GPUMesh::GPUMesh(const Mesh& cpuMesh)
 {
-    // Create uniform buffer to store mesh material (https://learnopengl.com/Advanced-OpenGL/Advanced-GLSL)
+    // Create uniform buffer to store mesh material
     GPUMaterial gpuMaterial(cpuMesh.material);
     glGenBuffers(1, &m_uboMaterial);
     glBindBuffer(GL_UNIFORM_BUFFER, m_uboMaterial);
     glBufferData(GL_UNIFORM_BUFFER, sizeof(GPUMaterial), &gpuMaterial, GL_STATIC_READ);
 
-    // Figure out if this mesh has texture coordinates
-    m_hasTextureCoords = static_cast<bool>(cpuMesh.material.kdTexture);
+    // ? Check if mesh actually has texture coordinates in its vertices
+    m_hasTextureCoords = false;
+    if (!cpuMesh.vertices.empty()) {
+        // Check if any vertex has non-zero texture coordinates
+        for (const auto& v : cpuMesh.vertices) {
+            if (v.texCoord.x != 0.0f || v.texCoord.y != 0.0f) {
+                m_hasTextureCoords = true;
+                break;
+            }
+        }
+        // If all are zero, check if they vary (might be intentionally zero)
+        if (!m_hasTextureCoords && cpuMesh.vertices.size() > 1) {
+            glm::vec2 first = cpuMesh.vertices[0].texCoord;
+            for (size_t i = 1; i < cpuMesh.vertices.size(); ++i) {
+                if (cpuMesh.vertices[i].texCoord != first) {
+                    m_hasTextureCoords = true;
+                    break;
+                }
+            }
+        }
+    }
 
-    // Create VAO and bind it so subsequent creations of VBO and IBO are bound to this VAO
+    std::cout << "Mesh has " << cpuMesh.vertices.size() << " vertices, hasTextureCoords: "
+        << (m_hasTextureCoords ? "YES" : "NO") << std::endl;
+
+    // Create VAO and bind it
     glGenVertexArrays(1, &m_vao);
     glBindVertexArray(m_vao);
 
@@ -106,20 +155,24 @@ GPUMesh::GPUMesh(const Mesh& cpuMesh)
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ibo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(cpuMesh.triangles.size() * sizeof(decltype(cpuMesh.triangles)::value_type)), cpuMesh.triangles.data(), GL_STATIC_DRAW);
 
-    // Tell OpenGL that we will be using vertex attributes 0, 1 and 2.
+    // Enable vertex attributes
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
     glEnableVertexAttribArray(2);
-    // We tell OpenGL what each vertex looks like and how they are mapped to the shader (location = ...).
+    glEnableVertexAttribArray(3);
+
+    // Set up vertex attribute pointers
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoord));
-    // Reuse all attributes for each instance
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, tangent));
+
+    // Set attribute divisors
     glVertexAttribDivisor(0, 0);
     glVertexAttribDivisor(1, 0);
     glVertexAttribDivisor(2, 0);
+    glVertexAttribDivisor(3, 0);
 
-    // Each triangle has 3 vertices.
     m_numIndices = static_cast<GLsizei>(3 * cpuMesh.triangles.size());
 }
 
@@ -139,18 +192,77 @@ GPUMesh& GPUMesh::operator=(GPUMesh&& other)
     return *this;
 }
 
+// Compute tangent vectors for normal mapping (Lengyel's Method)
+static void computeTangents(Mesh& m)
+{
+    // Initialize all tangents to zero
+    std::vector<glm::vec3> tangents(m.vertices.size(), glm::vec3(0.0f));
+    std::vector<glm::vec3> bitangents(m.vertices.size(), glm::vec3(0.0f));
+
+    // Accumulate tangent/bitangent for each triangle
+    for (const glm::uvec3& tri : m.triangles) {
+        const Vertex& v0 = m.vertices[tri.x];
+        const Vertex& v1 = m.vertices[tri.y];
+        const Vertex& v2 = m.vertices[tri.z];
+
+        glm::vec3 edge1 = v1.position - v0.position;
+        glm::vec3 edge2 = v2.position - v0.position;
+
+        glm::vec2 deltaUV1 = v1.texCoord - v0.texCoord;
+        glm::vec2 deltaUV2 = v2.texCoord - v0.texCoord;
+
+        float f = deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y;
+        if (std::abs(f) < 1e-6f) f = 1.0f; // Avoid division by zero
+        f = 1.0f / f;
+
+        glm::vec3 tangent;
+        tangent.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
+        tangent.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
+        tangent.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
+
+        // Accumulate for each vertex of the triangle
+        tangents[tri.x] += tangent;
+        tangents[tri.y] += tangent;
+        tangents[tri.z] += tangent;
+    }
+
+    // Normalize and orthogonalize tangents (Gram-Schmidt)
+    for (size_t i = 0; i < m.vertices.size(); ++i) {
+        const glm::vec3& n = m.vertices[i].normal;
+        glm::vec3 t = tangents[i];
+
+        // Gram-Schmidt orthogonalize
+        t = t - n * glm::dot(n, t);
+
+        // Normalize
+        float len = glm::length(t);
+        if (len > 1e-6f) {
+            t /= len;
+        }
+        else {
+            // If tangent is degenerate, create an arbitrary perpendicular vector
+            t = glm::vec3(1, 0, 0);
+            if (std::abs(glm::dot(n, t)) > 0.9f)
+                t = glm::vec3(0, 1, 0);
+            t = glm::normalize(t - n * glm::dot(n, t));
+        }
+
+        m.vertices[i].tangent = t;
+    }
+}
+
 std::vector<GPUMesh> GPUMesh::loadMeshGPU(std::filesystem::path filePath, bool normalize) {
     if (!std::filesystem::exists(filePath))
         throw MeshLoadingException(fmt::format("File {} does not exist", filePath.string().c_str()));
 
-    // Load all sub-meshes on CPU
     std::vector<Mesh> subMeshes = loadMesh(filePath, { .normalizeVertexPositions = normalize });
     std::vector<GPUMesh> gpuMeshes;
     gpuMeshes.reserve(subMeshes.size());
 
     for (Mesh meshCopy : subMeshes) {
-        // Force smooth shading regardless of OBJ-provided normals
         recomputeSmoothNormals(meshCopy);
+        generatePlanarUVs(meshCopy);  // ? Generate UVs if missing
+        computeTangents(meshCopy);
         gpuMeshes.emplace_back(meshCopy);
     }
 

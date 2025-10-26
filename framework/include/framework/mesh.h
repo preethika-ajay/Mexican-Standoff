@@ -15,7 +15,7 @@ struct Vertex {
 	glm::vec3 position;
 	glm::vec3 normal;
 	glm::vec2 texCoord; // Texture coordinate
-
+	glm::vec3 tangent;
 	[[nodiscard]] constexpr bool operator==(const Vertex&) const noexcept = default;
 };
 

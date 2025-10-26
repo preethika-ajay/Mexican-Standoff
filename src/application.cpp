@@ -37,7 +37,10 @@ public:
     Application()
         : m_window("Final Project", glm::ivec2(1024, 1024), OpenGLVersion::GL41)
         , m_texture(RESOURCE_ROOT "resources/checkerboard.png")
+        , m_normalMap(RESOURCE_ROOT "resources/brick_normal.png") 
+        , m_diffuseTexture(RESOURCE_ROOT "resources/brick_normal.png")
         , m_cameraPosition(0.0f, 1.5f, 5.0f)
+
         , m_cameraTarget(0.0f, 0.5f, 0.0f)
         , m_cameraUp(0.0f, 1.0f, 0.0f)
     {
@@ -153,6 +156,8 @@ public:
             ImGui::SliderFloat("kd (diffuse)",  &m_kd, 0.0f, 2.0f);
             ImGui::SliderFloat("ks (specular)", &m_ks, 0.0f, 2.0f);
             ImGui::SliderFloat("Shininess", &m_shininess, 1.0f, 256.0f);
+            ImGui::Checkbox("Enable Normal Map", &m_enableNormalMap);
+            ImGui::Checkbox("Enable Diffuse Texture", &m_enableDiffuseTexture);
 
             if (m_enablePBR) {
                 ImGui::SliderFloat("Metallic", &m_metallic, 0.0f, 1.0f);
@@ -395,14 +400,14 @@ private:
 
     void renderModel(std::vector<GPUMesh>& meshes, const glm::mat4& modelMatrix, bool isGround)
     {
-        const glm::mat4 mvpMatrix         = m_projectionMatrix * m_viewMatrix * modelMatrix;
+        const glm::mat4 mvpMatrix = m_projectionMatrix * m_viewMatrix * modelMatrix;
         const glm::mat3 normalModelMatrix = glm::inverseTranspose(glm::mat3(modelMatrix));
 
         // Lights
         int n = (int)std::min<size_t>(m_lights.size(), MAX_LIGHTS);
         glm::vec3 lp[MAX_LIGHTS], lc[MAX_LIGHTS];
         float li[MAX_LIGHTS];
-        for (int i = 0; i < n; ++i) { lp[i]=m_lights[i].position; lc[i]=m_lights[i].color; li[i]=m_lights[i].intensity; }
+        for (int i = 0; i < n; ++i) { lp[i] = m_lights[i].position; lc[i] = m_lights[i].color; li[i] = m_lights[i].intensity; }
 
         // Shadows
         int sN = std::min(n, MAX_SHADOW_LIGHTS);
@@ -410,21 +415,26 @@ private:
         for (int i = 0; i < sN; ++i) lvp[i] = m_lightViewProj[i];
 
         // Bind shadow maps to texture units 1..N
-        for (int i = 0; i < sN; ++i) { glActiveTexture(GL_TEXTURE1 + i); glBindTexture(GL_TEXTURE_2D, m_shadowDepth[i]); }
+        for (int i = 0; i < sN; ++i) {
+            glActiveTexture(GL_TEXTURE1 + i);
+            glBindTexture(GL_TEXTURE_2D, m_shadowDepth[i]);
+        }
+
         glActiveTexture(GL_TEXTURE0);
 
         for (GPUMesh& mesh : meshes) {
             Shader& shader = m_enablePBR ? m_pbrShader : m_defaultShader;
             shader.bind();
 
-            glUniformMatrix4fv(shader.getUniformLocation("mvpMatrix"),         1, GL_FALSE, glm::value_ptr(mvpMatrix));
-            glUniformMatrix4fv(shader.getUniformLocation("modelMatrix"),       1, GL_FALSE, glm::value_ptr(modelMatrix));
+            // ? ADD ALL THESE UNIFORMS (you had these before but removed them)
+            glUniformMatrix4fv(shader.getUniformLocation("mvpMatrix"), 1, GL_FALSE, glm::value_ptr(mvpMatrix));
+            glUniformMatrix4fv(shader.getUniformLocation("modelMatrix"), 1, GL_FALSE, glm::value_ptr(modelMatrix));
             glUniformMatrix3fv(shader.getUniformLocation("normalModelMatrix"), 1, GL_FALSE, glm::value_ptr(normalModelMatrix));
 
-            glUniform1i (shader.getUniformLocation("numLights"), n);
+            glUniform1i(shader.getUniformLocation("numLights"), n);
             if (n > 0) {
-                glUniform3fv(shader.getUniformLocation("lightPosition"),  n, glm::value_ptr(lp[0]));
-                glUniform3fv(shader.getUniformLocation("lightColor"),     n, glm::value_ptr(lc[0]));
+                glUniform3fv(shader.getUniformLocation("lightPosition"), n, glm::value_ptr(lp[0]));
+                glUniform3fv(shader.getUniformLocation("lightColor"), n, glm::value_ptr(lc[0]));
                 glUniform1fv(shader.getUniformLocation("lightIntensity"), n, li);
             }
             glUniform3fv(shader.getUniformLocation("viewPosition"), 1, glm::value_ptr(m_cameraPosition));
@@ -441,10 +451,10 @@ private:
                 }
                 glUniformMatrix4fv(shader.getUniformLocation("lightViewProj"), sN, GL_FALSE, glm::value_ptr(lvp[0]));
                 glUniform2f(shader.getUniformLocation("shadowTexelSize"),
-                            m_pcfTexelScale / float(m_shadowMapSize),
-                            m_pcfTexelScale / float(m_shadowMapSize));
+                    m_pcfTexelScale / float(m_shadowMapSize),
+                    m_pcfTexelScale / float(m_shadowMapSize));
                 glUniform1f(shader.getUniformLocation("shadowBias"), m_shadowBias);
-                glUniform1f(shader.getUniformLocation("shadowMinNdotL"), m_shadowMinNdotL); // NEW
+                glUniform1f(shader.getUniformLocation("shadowMinNdotL"), m_shadowMinNdotL);
             }
             glUniform1i(shader.getUniformLocation("isGround"), isGround ? 1 : 0);
 
@@ -452,26 +462,50 @@ private:
             glUniform3fv(shader.getUniformLocation("materialColor"), 1, glm::value_ptr(matColor));
 
             if (mesh.hasTextureCoords()) {
-                m_texture.bind(GL_TEXTURE0);
-                glUniform1i(shader.getUniformLocation("colorMap"),     0);
+                // Choose which texture to use based on toggle
+                if (m_enableDiffuseTexture) {
+                    glActiveTexture(GL_TEXTURE0);
+                    m_diffuseTexture.bind(GL_TEXTURE0);  // ? Use your custom texture
+                }
+                else {
+                    glActiveTexture(GL_TEXTURE0);
+                    m_texture.bind(GL_TEXTURE0);  // Use default checkerboard
+                }
+
+                glUniform1i(shader.getUniformLocation("colorMap"), 0);
                 glUniform1i(shader.getUniformLocation("hasTexCoords"), GL_TRUE);
-                glUniform1i(shader.getUniformLocation("useMaterial"),  GL_FALSE);
-            } else {
-                glUniform1i(shader.getUniformLocation("hasTexCoords"), GL_FALSE);
-                glUniform1i(shader.getUniformLocation("useMaterial"),  m_useMaterial);
+                glUniform1i(shader.getUniformLocation("useMaterial"), GL_FALSE);
+
+                if (m_enableNormalMap) {
+                    glActiveTexture(GL_TEXTURE0 + MAX_SHADOW_LIGHTS + 1);
+                    m_normalMap.bind(GL_TEXTURE0 + MAX_SHADOW_LIGHTS + 1);
+                    glUniform1i(shader.getUniformLocation("normalMap"), MAX_SHADOW_LIGHTS + 1);
+                    glUniform1i(shader.getUniformLocation("hasNormalMap"), GL_TRUE);
+                }
+                else {
+                    glUniform1i(shader.getUniformLocation("hasNormalMap"), GL_FALSE);
+                }
             }
+            else {
+                glUniform1i(shader.getUniformLocation("hasTexCoords"), GL_FALSE);
+                glUniform1i(shader.getUniformLocation("useMaterial"), m_useMaterial);
+                glUniform1i(shader.getUniformLocation("hasNormalMap"), GL_FALSE);
+            }
+
             if (m_enablePBR) {
                 glUniform1f(shader.getUniformLocation("metallic"), m_metallic);
                 glUniform1f(shader.getUniformLocation("roughness"), m_roughness);
                 glUniform3fv(shader.getUniformLocation("albedo"), 1, glm::value_ptr(m_albedo));
-                glUniform1f(shader.getUniformLocation("kd"), m_kd);
-                glUniform1f(shader.getUniformLocation("ks"), m_ks);
             }
-            mesh.draw(m_defaultShader);
+
+            mesh.draw(shader);
         }
 
         // Unbind shadow textures
-        for (int i = 0; i < sN; ++i) { glActiveTexture(GL_TEXTURE1 + i); glBindTexture(GL_TEXTURE_2D, 0); }
+        for (int i = 0; i < sN; ++i) {
+            glActiveTexture(GL_TEXTURE1 + i);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
         glActiveTexture(GL_TEXTURE0);
     }
 
@@ -623,7 +657,11 @@ private:
     std::vector<PointLight> m_lights;
 
     Texture m_texture;
-    bool m_useMaterial { true };
+    Texture m_normalMap;
+    Texture m_diffuseTexture;
+    bool   m_useMaterial{ true };
+    bool   m_enableNormalMap{ false }; 
+    bool m_enableDiffuseTexture{ false };
 
     // Camera
     glm::vec3 m_cameraPosition, m_cameraTarget, m_cameraUp;

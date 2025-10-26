@@ -3,6 +3,7 @@
 in vec3 fragPosition;
 in vec3 fragNormal;
 in vec2 fragTexCoord;
+in mat3 TBN; 
 
 uniform sampler2D colorMap;
 uniform bool hasTexCoords;
@@ -28,6 +29,9 @@ uniform mat4 lightViewProj[MAX_SHADOW_LIGHTS];
 uniform vec2 shadowTexelSize;   // (1/size, 1/size) scaled
 uniform float shadowBias;
 uniform int  isGround;          // 1 when drawing ground plane
+
+uniform sampler2D normalMap;
+uniform bool hasNormalMap;
 
 // NEW: if |dot(groundN, lightDir)| < shadowMinNdotL, skip this light's shadow on ground
 uniform float shadowMinNdotL;   // 0.00..0.20 (parallel threshold)
@@ -101,6 +105,14 @@ void main()
 
     // ---------- REGULAR OBJECT SHADING (characters, etc.) ----------
     vec3 N = normalize(fragNormal);
+
+    // Apply tangent-space normal map if available
+    if (hasNormalMap) {
+        vec3 normalSample = texture(normalMap, fragTexCoord).rgb;
+        normalSample = normalSample * 2.0 - 1.0; // remap [0,1] ? [-1,1]
+        N = normalize(TBN * normalSample);
+    }
+
     vec3 V = normalize(viewPosition - fragPosition);
 
     float ambientStrength  = 0.08;
