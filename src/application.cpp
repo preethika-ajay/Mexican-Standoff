@@ -22,6 +22,7 @@ DISABLE_WARNINGS_POP()
 #include <string>
 #include <algorithm>
 #include <stb/stb_image.h>
+#include <glm/gtc/random.hpp>
 
 // ---- Multi-light globals ----
 int selectedLightIndex = 0;
@@ -31,6 +32,95 @@ struct PointLight {
     glm::vec3 color    { 1.0f, 1.0f, 1.0f };
     float     intensity{ 1.0f };
     float     pointSize{ 18.0f }; // for the on-screen orb only
+};
+
+struct Particle {
+    glm::vec3 position;
+    glm::vec3 velocity;
+    glm::vec3 color;
+    float lifetime;
+    float maxLifetime;
+    float size;
+};
+
+class ParticleSystem {
+public:
+    std::vector<Particle> particles;
+
+    void update(float dt) {
+        for (auto it = particles.begin(); it != particles.end();) {
+            it->lifetime -= dt;
+            if (it->lifetime <= 0.0f) {
+                it = particles.erase(it);
+            }
+            else {
+                it->position += it->velocity * dt;
+                it->velocity.y -= 9.8f * dt; // gravity
+                ++it;
+            }
+        }
+    }
+
+    void addMuzzleFlash(const glm::vec3& position) {
+        // Create explosive burst of particles
+        for (int i = 0; i < 20; ++i) {
+            Particle p;
+            p.position = position;
+
+            // Random direction in a cone
+            float angle = glm::linearRand(0.0f, glm::two_pi<float>());
+            float spread = glm::linearRand(0.0f, 0.3f);
+            p.velocity = glm::vec3(
+                std::cos(angle) * spread,
+                glm::linearRand(0.5f, 2.0f),
+                std::sin(angle) * spread
+            ) * 3.0f;
+
+            p.color = glm::vec3(1.0f, glm::linearRand(0.5f, 1.0f), 0.0f); // Orange/yellow
+            p.lifetime = glm::linearRand(0.1f, 0.3f);
+            p.maxLifetime = p.lifetime;
+            p.size = glm::linearRand(0.05f, 0.15f);
+
+            particles.push_back(p);
+        }
+    }
+
+    void addBulletTrail(const glm::vec3& position) {
+        Particle p;
+        p.position = position;
+        p.velocity = glm::vec3(0.0f);
+        p.color = glm::vec3(0.8f, 0.8f, 0.9f); // Smoke gray
+        p.lifetime = 0.2f;
+        p.maxLifetime = p.lifetime;
+        p.size = 0.08f;
+        particles.push_back(p);
+    }
+
+    void addHitEffect(const glm::vec3& position) {
+        // Explosion-like effect on hit
+        for (int i = 0; i < 30; ++i) {
+            Particle p;
+            p.position = position;
+
+            // Spherical explosion
+            float theta = glm::linearRand(0.0f, glm::two_pi<float>());
+            float phi = glm::linearRand(0.0f, glm::pi<float>());
+            float speed = glm::linearRand(1.0f, 4.0f);
+
+            p.velocity = glm::vec3(
+                speed * std::sin(phi) * std::cos(theta),
+                speed * std::sin(phi) * std::sin(theta),
+                speed * std::cos(phi)
+            );
+
+            p.color = glm::vec3(1.0f, glm::linearRand(0.0f, 0.3f), 0.0f); // Red/orange
+            p.lifetime = glm::linearRand(0.3f, 0.6f);
+            p.maxLifetime = p.lifetime;
+            p.size = glm::linearRand(0.08f, 0.2f);
+
+            particles.push_back(p);
+        }
+    }
 };
 
 struct BezierCurve {
@@ -64,6 +154,109 @@ struct BezierCurve {
         tangent += 3.0f * tt * p3;
 
         return glm::normalize(tangent);
+    }
+};
+
+// Bullet that travels along a Bézier curve at constant speed
+class Bullet {
+public:
+    BezierCurve curve;
+    float currentDistance;
+    float totalDistance;
+    float speed; // units per second
+    bool active;
+    glm::vec3 currentPosition;
+    int shooterIndex; // 0 or 1 (left or right character)
+
+    Bullet(const glm::vec3& start, const glm::vec3& target, int shooter)
+        : shooterIndex(shooter), currentDistance(0.0f), speed(10.0f), active(true)
+    {
+        // Create a curved bullet path (adds drama!)
+        glm::vec3 mid = (start + target) * 0.5f;
+        mid.y += 1.0f; // Arc upward
+
+        // Add some random horizontal curve
+        glm::vec3 perpendicular = glm::normalize(glm::cross(target - start, glm::vec3(0, 1, 0)));
+        float curvature = glm::linearRand(-0.5f, 0.5f);
+
+        curve.p0 = start;
+        curve.p1 = start + (mid - start) * 0.5f + perpendicular * curvature;
+        curve.p2 = mid + (target - mid) * 0.5f - perpendicular * curvature;
+        curve.p3 = target;
+
+        // Estimate arc length by sampling
+        totalDistance = estimateArcLength();
+        currentPosition = start;
+    }
+
+    float estimateArcLength(int samples = 50) {
+        float length = 0.0f;
+        glm::vec3 prev = curve.evaluate(0.0f);
+
+        for (int i = 1; i <= samples; ++i) {
+            float t = float(i) / samples;
+            glm::vec3 curr = curve.evaluate(t);
+            length += glm::length(curr - prev);
+            prev = curr;
+        }
+
+        return length;
+    }
+
+    void update(float dt, ParticleSystem& particles) {
+        if (!active) return;
+
+        currentDistance += speed * dt;
+
+        // Leave a trail
+        if (glm::linearRand(0.0f, 1.0f) < 0.3f) {
+            particles.addBulletTrail(currentPosition);
+        }
+
+        if (currentDistance >= totalDistance) {
+            active = false;
+            return;
+        }
+
+        // Convert distance to parametric t using binary search
+        float t = distanceToParameter(currentDistance);
+        currentPosition = curve.evaluate(t);
+    }
+
+    float distanceToParameter(float targetDistance, int iterations = 10) {
+        float tMin = 0.0f, tMax = 1.0f;
+
+        for (int i = 0; i < iterations; ++i) {
+            float tMid = (tMin + tMax) * 0.5f;
+            float dist = estimateArcLengthUpTo(tMid);
+
+            if (dist < targetDistance) {
+                tMin = tMid;
+            }
+            else {
+                tMax = tMid;
+            }
+        }
+
+        return (tMin + tMax) * 0.5f;
+    }
+
+    float estimateArcLengthUpTo(float tEnd, int samples = 20) {
+        float length = 0.0f;
+        glm::vec3 prev = curve.evaluate(0.0f);
+
+        for (int i = 1; i <= samples; ++i) {
+            float t = (float(i) / samples) * tEnd;
+            glm::vec3 curr = curve.evaluate(t);
+            length += glm::length(curr - prev);
+            prev = curr;
+        }
+
+        return length;
+    }
+
+    bool checkCollision(const glm::vec3& targetPos, float radius) {
+        return glm::length(currentPosition - targetPos) < radius;
     }
 };
 
@@ -503,6 +696,122 @@ public:
 
         initShadowResources();
         initWindmillPrimitives();
+        initShadowResources();
+        initWindmillPrimitives();
+        initParticleRendering();
+    }
+
+    void shootBullet(int shooterIndex) {
+        glm::vec3 leftPos(-m_modelDistance * 0.5f, 1.0f, 0.0f);   // ? Changed from 1.5f to 1.0f
+        glm::vec3 rightPos(m_modelDistance * 0.5f, 1.0f, 0.0f);   // ? Changed from 1.5f to 1.0f
+
+        glm::vec3 start, target;
+        if (shooterIndex == 0) {
+            start = leftPos + glm::vec3(0.5f, 0.0f, 0.0f); // Gun position
+            target = rightPos;
+        }
+        else {
+            start = rightPos + glm::vec3(-0.5f, 0.0f, 0.0f);
+            target = leftPos;
+        }
+
+        m_bullets.emplace_back(start, target, shooterIndex);
+        m_particleSystem.addMuzzleFlash(start);
+    }
+
+    void updateBulletsAndCollisions(float dt) {
+        m_particleSystem.update(dt);
+
+        // Auto-shoot mode
+        if (m_autoShoot) {
+            m_shootTimer -= dt;
+            if (m_shootTimer <= 0.0f) {
+                int shooter = glm::linearRand(0, 1);
+                shootBullet(shooter);
+                m_shootTimer = glm::linearRand(1.0f, 3.0f);
+            }
+        }
+
+        glm::vec3 leftPos(-m_modelDistance * 0.5f, 1.0f, 0.0f);   
+        glm::vec3 rightPos(m_modelDistance * 0.5f, 1.0f, 0.0f);  
+
+        for (auto& bullet : m_bullets) {
+            bullet.update(dt, m_particleSystem);
+
+            if (!bullet.active) continue;
+
+            // Check collision with target character
+            glm::vec3 targetPos = (bullet.shooterIndex == 0) ? rightPos : leftPos;
+            int targetIndex = (bullet.shooterIndex == 0) ? 1 : 0;
+
+            if (!m_characterHit[targetIndex] && bullet.checkCollision(targetPos, 0.5f)) {
+                bullet.active = false;
+                m_characterHit[targetIndex] = true;
+                m_particleSystem.addHitEffect(bullet.currentPosition);
+                std::cout << "Character " << targetIndex << " hit!\n";
+            }
+        }
+
+        // Remove inactive bullets
+        m_bullets.erase(
+            std::remove_if(m_bullets.begin(), m_bullets.end(),
+                [](const Bullet& b) { return !b.active; }),
+            m_bullets.end()
+        );
+    }
+
+    void renderParticles() {
+        if (m_particleSystem.particles.empty()) return;
+
+        m_lightPointShader.bind();
+        glBindVertexArray(m_particleVAO);
+
+        glm::mat4 viewProj = m_projectionMatrix * m_viewMatrix;
+        glUniformMatrix4fv(m_lightPointShader.getUniformLocation("viewProj"),
+            1, GL_FALSE, glm::value_ptr(viewProj));
+
+        for (const auto& p : m_particleSystem.particles) {
+            float alpha = p.lifetime / p.maxLifetime;
+            glm::vec3 color = p.color * alpha;
+
+            glUniform3fv(m_lightPointShader.getUniformLocation("lightPos"),
+                1, glm::value_ptr(p.position));
+            glUniform1f(m_lightPointShader.getUniformLocation("pointSize"),
+                p.size * 100.0f);
+            glUniform3fv(m_lightPointShader.getUniformLocation("lightColor"),
+                1, glm::value_ptr(color));
+
+            glDrawArrays(GL_POINTS, 0, 1);
+        }
+
+        glBindVertexArray(0);
+    }
+
+    void renderBullets() {
+        m_lightPointShader.bind();
+        glBindVertexArray(m_dummyVAO);
+
+        glm::mat4 viewProj = m_projectionMatrix * m_viewMatrix;
+        glUniformMatrix4fv(m_lightPointShader.getUniformLocation("viewProj"),
+            1, GL_FALSE, glm::value_ptr(viewProj));
+
+        for (const auto& bullet : m_bullets) {
+            if (!bullet.active) continue;
+
+            glUniform3fv(m_lightPointShader.getUniformLocation("lightPos"),
+                1, glm::value_ptr(bullet.currentPosition));
+            glUniform1f(m_lightPointShader.getUniformLocation("pointSize"), 20.0f);
+            glUniform3fv(m_lightPointShader.getUniformLocation("lightColor"),
+                1, glm::value_ptr(glm::vec3(1.0f, 1.0f, 0.0f)));
+
+            glDrawArrays(GL_POINTS, 0, 1);
+        }
+
+        glBindVertexArray(0);
+    }
+
+    void initParticleRendering() {
+        glGenVertexArrays(1, &m_particleVAO);
     }
 
     void update()
@@ -520,6 +829,7 @@ public:
             handleContinuousKeyboard(dt);
             updatePathCamera(dt);
             m_windmill.update(dt);
+            updateBulletsAndCollisions(dt);
 
             // UI
             ImGui::Begin("Window");
@@ -581,6 +891,28 @@ public:
             ImGui::SliderFloat("Wind Speed", &m_windmill.windSpeed, 0.0f, 100.0f);
             ImGui::DragFloat3("Windmill Position", glm::value_ptr(m_windmillPosition), 0.1f, -20.0f, 20.0f);
 
+            ImGui::Separator();
+            ImGui::Text("Mexican Standoff Controls");
+            ImGui::Checkbox("Auto-Shoot Mode", &m_autoShoot);
+            if (ImGui::Button("Left Character Shoots")) {
+                shootBullet(0);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Right Character Shoots")) {
+                shootBullet(1);
+            }
+            if (ImGui::Button("Reset Standoff")) {
+                m_bullets.clear();
+                m_particleSystem.particles.clear();
+                m_characterHit[0] = false;
+                m_characterHit[1] = false;
+            }
+
+            ImGui::Text("Left Character: %s", m_characterHit[0] ? "HIT" : "OK");
+            ImGui::Text("Right Character: %s", m_characterHit[1] ? "HIT" : "OK");
+            ImGui::Text("Active Bullets: %zu", m_bullets.size());
+            ImGui::Text("Active Particles: %zu", m_particleSystem.particles.size());
+
             // Lights GUI
             ImGui::Separator();
             ImGui::Text("Lights");
@@ -641,6 +973,8 @@ public:
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             renderLightPoints();
+            renderParticles();
+            renderBullets();
             renderPathCurve();
 
             // Ground (receives shadows)
@@ -804,6 +1138,13 @@ private:
     WesternWindmill m_windmill;
     glm::vec3 m_windmillPosition{ -5.0f, 0.0f, -5.0f };
     GLuint m_cubeVAO{ 0 }, m_cubeVBO{ 0 }, m_cubeIBO{ 0 };
+
+     ParticleSystem m_particleSystem;
+     std::vector<Bullet> m_bullets;
+     GLuint m_particleVAO{0};
+     bool m_autoShoot{false};
+     float m_shootTimer{0.0f};
+     bool m_characterHit[2] = {false, false};
 
     GLuint loadCubemap(const std::vector<std::string>& faces)
     {
@@ -1211,6 +1552,14 @@ private:
         if (key == GLFW_KEY_L && !(mods & GLFW_MOD_SHIFT)) {
             if (!m_lights.empty() && selectedLightIndex >= 0 && selectedLightIndex < (int)m_lights.size())
                 m_lights[selectedLightIndex].position = m_cameraPosition + m_cameraFront * 0.5f;
+        }
+
+        // Add to onKeyPressed method:
+        if (key == GLFW_KEY_1 && !(mods & GLFW_MOD_SHIFT)) {
+            shootBullet(0); // Left shoots
+        }
+        if (key == GLFW_KEY_2 && !(mods & GLFW_MOD_SHIFT)) {
+            shootBullet(1); // Right shoots
         }
     }
 
