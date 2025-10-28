@@ -620,8 +620,8 @@ public:
         m_window.registerScrollCallback(std::bind(&Application::onScroll, this, std::placeholders::_1));
 
         // Load models
-        m_meshesA = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps.obj");
-        m_meshesB = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps_mirrorX.obj");
+        m_meshesA = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_arms_down_both.obj");
+        m_meshesB = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_arms_down_both.obj");
         ground    = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/ground_plane.obj");
 
         std::vector<std::string> faces = {
@@ -809,6 +809,22 @@ public:
 
             const double now = glfwGetTime();
             float dt = static_cast<float>(now - m_lastTime);
+            if (!m_walkInitDone) {
+                m_modelDistance = m_startSep;
+                m_walkInitDone  = true;
+            }
+
+            // Walk away from each other (backs to each other)
+            if (m_walkAway) {
+                // distance between the two doubles because both walk outwards
+                m_modelDistance = std::min(m_modelDistance + 2.0f * m_walkSpeed * dt, m_maxSep);
+            }
+
+            // If we just reached max separation, switch models and enable shooting once
+            if (!m_startedShootPhase && m_modelDistance >= m_maxSep - 1e-4f) {
+                enterShootPhase();
+            }
+
             m_lastTime = now;
             dt = glm::clamp(dt, 0.0f, 0.05f);
 
@@ -877,6 +893,14 @@ public:
                                   0.1f, -20.0f, 20.0f);
                 ImGui::PopID();
             }
+
+            ImGui::Checkbox("Walk Away (auto)", &m_walkAway);
+            ImGui::SliderFloat("Walk Speed (u/s per char)", &m_walkSpeed, 0.0f, 3.0f);
+            ImGui::SliderFloat("Max Separation", &m_maxSep, 0.5f, 20.0f);
+            ImGui::Text("Current Separation: %.2f", m_modelDistance);
+
+            ImGui::Text("Phase: %s", m_startedShootPhase ? "Shoot" : "Walk");
+
 
             ImGui::Separator();
             ImGui::Text("Mexican Standoff Controls");
@@ -968,8 +992,25 @@ public:
             renderModel(ground, glm::mat4(1.0f), /*isGround*/true);
 
             // Characters (occluders only, not receivers)
-            glm::mat4 modelMatrixA = glm::translate(glm::mat4(1.0f), glm::vec3(-m_modelDistance * 0.5f, 0.0f, 0.0f));
-            glm::mat4 modelMatrixB = glm::translate(glm::mat4(1.0f), glm::vec3( m_modelDistance * 0.5f, 0.0f, 0.0f));
+            // Back-to-back orientation: left +90°, right -90° around Y
+            glm::mat4 rotLeft  = glm::rotate(glm::mat4(1.0f), glm::radians( 90.0f), glm::vec3(0,1,0));
+            glm::mat4 rotRight = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0,1,0));
+
+            glm::mat4 modelMatrixA =
+                glm::translate(glm::mat4(1.0f), glm::vec3(-m_modelDistance * 0.5f, 0.0f, 0.0f)) * rotLeft;
+            glm::mat4 modelMatrixB =
+                glm::translate(glm::mat4(1.0f), glm::vec3( m_modelDistance * 0.5f, 0.0f, 0.0f)) * rotRight;
+
+            if (m_applyShootRot) {
+                // Left model:  -90° about Z
+                glm::mat4 zLeft  = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0,1,0));
+                // Right model: +90° about Z
+                glm::mat4 zRight = glm::rotate(glm::mat4(1.0f), glm::radians( 90.0f), glm::vec3(0,1, 0));
+
+                modelMatrixA = modelMatrixA * zLeft;
+                modelMatrixB = modelMatrixB * zRight;
+            }
+
             renderModel(m_meshesA, modelMatrixA, /*isGround*/false);
             renderModel(m_meshesB, modelMatrixB, /*isGround*/false);
 
@@ -979,7 +1020,7 @@ public:
         }
     }
 
-void renderWindmills() {
+    void renderWindmills() {
     // gather nodes once
     std::vector<std::pair<WindmillNode*, glm::mat4>> renderData;
     m_windmill.collectRenderData(renderData);
@@ -1031,7 +1072,6 @@ void renderWindmills() {
 
     glBindVertexArray(0);
 }
-
 
     void initPathRendering() {
         m_pathLineSegments = m_cameraPath.generateLineSegments(30); // 30 segments per curve
@@ -1123,6 +1163,25 @@ private:
     std::vector<glm::vec3> m_pathLineSegments;
     Shader m_pathShader;
 
+    // --- Walk-away behaviour ---
+    bool  m_walkAway     { true };   // start with auto-walk enabled
+    float m_startSep     { 0.60f };  // tiny initial gap
+    float m_walkSpeed    { 0.25f };   // units/s per character
+    float m_maxSep       { 6.0f };   // clamp maximum distance
+    bool  m_walkInitDone { false };  // one-time init flag
+
+    // --- Shoot phase trigger ---
+    bool  m_startedShootPhase { false };
+
+    // Optional: alternate meshes to use once separated
+    std::vector<GPUMesh> m_meshesA_aim, m_meshesB_aim;
+
+    // File paths for the “aiming” (or alternate) meshes.
+    // Replace with whatever filenames you actually have.
+    const char* m_leftAimMeshPath  = RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps.obj";
+    const char* m_rightAimMeshPath = RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps_mirrorX.obj";
+
+
     WesternWindmill m_windmill;
     std::vector<glm::vec3> m_windmillPositions{
         { -12.0f, 0.0f, -20.0f },
@@ -1139,6 +1198,7 @@ private:
      bool m_autoShoot{false};
      float m_shootTimer{0.0f};
      bool m_characterHit[2] = {false, false};
+    bool m_applyShootRot{ false };
 
     GLuint loadCubemap(const std::vector<std::string>& faces)
     {
@@ -1293,8 +1353,13 @@ private:
                 for (auto& m : meshes) m.draw(m_shadowShader);
             };
 
-            glm::mat4 modelMatrixA = glm::translate(glm::mat4(1.0f), glm::vec3(-m_modelDistance * 0.5f, 0.0f, 0.0f));
-            glm::mat4 modelMatrixB = glm::translate(glm::mat4(1.0f), glm::vec3( m_modelDistance * 0.5f, 0.0f, 0.0f));
+            glm::mat4 rotLeft  = glm::rotate(glm::mat4(1.0f), glm::radians( 90.0f), glm::vec3(0,1,0));
+            glm::mat4 rotRight = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0,1,0));
+
+            glm::mat4 modelMatrixA =
+                glm::translate(glm::mat4(1.0f), glm::vec3(-m_modelDistance * 0.5f, 0.0f, 0.0f)) * rotLeft;
+            glm::mat4 modelMatrixB =
+                glm::translate(glm::mat4(1.0f), glm::vec3( m_modelDistance * 0.5f, 0.0f, 0.0f)) * rotRight;
 
             // Characters into shadow map
             drawDepth(m_meshesA, modelMatrixA);
@@ -1307,6 +1372,41 @@ private:
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    }
+
+    void enterShootPhase()
+    {
+        if (m_startedShootPhase) return;
+        m_startedShootPhase = true;
+
+        // Stop walking exactly at max separation so they don't drift
+        m_walkAway    = false;
+        m_modelDistance = m_maxSep;
+
+        // Try to load alternate “aiming” meshes. If unavailable, silently keep current ones.
+        try {
+            m_meshesA_aim = GPUMesh::loadMeshGPU(m_leftAimMeshPath);
+        } catch (...) {
+            m_meshesA_aim.clear();
+        }
+        try {
+            m_meshesB_aim = GPUMesh::loadMeshGPU(m_rightAimMeshPath);
+        } catch (...) {
+            m_meshesB_aim.clear();
+        }
+
+        // If both alternates loaded, swap them in
+        if (!m_meshesA_aim.empty()) m_meshesA = std::move(m_meshesA_aim);
+        if (!m_meshesB_aim.empty()) m_meshesB = std::move(m_meshesB_aim);
+
+        // Flip on auto-shoot
+        m_autoShoot  = true;
+
+        // Optional: quick first shot so it feels immediate
+        m_shootTimer = 0.2f; // first random shot soon
+
+        // >>> enable the Z-rotations after we’ve switched
+        m_applyShootRot = true;
     }
 
     // ---------- Camera + draw helpers ----------
@@ -1695,7 +1795,7 @@ private:
     GLuint m_dummyVAO { 0 };
 
     // Model positioning
-    float m_modelDistance { 6.0f };
+    float m_modelDistance { 0.20f };
 
     // Matrices
     glm::mat4 m_projectionMatrix = glm::perspective(glm::radians(80.0f), 1.0f, 0.1f, 30.0f);
