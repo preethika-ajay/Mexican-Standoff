@@ -1313,24 +1313,32 @@ private:
     // Perspective shadow camera from the light toward the scene.
     glm::mat4 buildLightViewProjPerspective(const glm::vec3& lightPos) const
     {
-        glm::vec3 sceneCenter(0.0f, 0.0f, 0.0f);                // center on ground
-        float radius = 2.5f + 0.5f * m_modelDistance;
-        radius += std::abs(lightPos.y) * 1.5f;                  // include long shadows
+        // --- CHANGE #1: focus the light on the midpoint between the models (on ground) ---
+        const glm::vec3 left  (-m_modelDistance * 0.5f, 0.0f, 0.0f);
+        const glm::vec3 right ( m_modelDistance * 0.5f, 0.0f, 0.0f);
+        glm::vec3 sceneCenter = 0.5f * (left + right);          // was glm::vec3(0,0,0)
+
+        // --- CHANGE #2: inflate coverage so shadows don't get cut at the frustum edge ---
+        // cover roughly the duel area + some extra for long shadows
+        float radius = glm::max(8.0f, m_modelDistance * 2.0f);   // was 2.5f + 0.5f*m_modelDistance
+        radius += std::abs(lightPos.y) * 1.5f;                   // keep your vertical slack
 
         glm::vec3 dir = sceneCenter - lightPos;
-        glm::vec3 up = (std::abs(glm::dot(glm::normalize(dir), glm::vec3(0,1,0))) > 0.95f)
-                       ? glm::vec3(0,0,1) : glm::vec3(0,1,0);
-        glm::mat4 V = glm::lookAt(lightPos, sceneCenter, up);
+        glm::vec3 up  = (std::abs(glm::dot(glm::normalize(dir), glm::vec3(0,1,0))) > 0.95f)
+                      ? glm::vec3(0,0,1) : glm::vec3(0,1,0);
+        glm::mat4 V   = glm::lookAt(lightPos, sceneCenter, up);
 
-        float dist = glm::length(dir);
-        float nearZ = std::max(0.10f, dist - radius);
-        float farZ  =           dist + radius + 20.0f;          // more slack to avoid clipping
-        float fov = 2.0f * std::atan(radius / std::max(0.1f, dist));
-        fov = glm::clamp(fov, glm::radians(30.0f), glm::radians(120.0f));
+        float dist  = glm::length(dir);
+        float nearZ = 0.05f;                                     // simpler + safer near
+        float farZ  = dist + radius * 2.0f;                      // was dist + radius + 20.0f
+
+        float fov   = 2.0f * std::atan(radius / glm::max(0.1f, dist));
+        fov         = glm::clamp(fov, glm::radians(30.0f), glm::radians(160.0f)); // slightly wider max
 
         glm::mat4 P = glm::perspective(fov, 1.0f, nearZ, farZ);
         return P * V;
     }
+
 
     void renderShadowMaps()
     {
@@ -1488,7 +1496,8 @@ private:
         glActiveTexture(GL_TEXTURE0);
 
         for (GPUMesh& mesh : meshes) {
-            Shader& shader = m_enablePBR ? m_pbrShader : m_defaultShader;
+
+            Shader& shader = (!isGround && m_enablePBR) ? m_pbrShader : m_defaultShader;
             shader.bind();
 
             // ? ADD ALL THESE UNIFORMS (you had these before but removed them)
