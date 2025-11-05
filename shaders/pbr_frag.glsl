@@ -58,7 +58,7 @@ void main()
         float NdotL = max(dot(N, L), 0.0);
         vec3 pbrColor = (kD * albedoColor / 3.14159 + specPBR) * radiance * NdotL;
 
-        // ---- Blinn–Phong branch ----
+        // ---- Blinn-Phong branch ----
         vec3 R = reflect(-L, N);
         float diff = max(dot(N, L), 0.0);
         float spec = pow(max(dot(R, V), 0.0), 32.0);

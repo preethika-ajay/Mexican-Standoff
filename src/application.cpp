@@ -126,7 +126,7 @@ public:
 struct BezierCurve {
     glm::vec3 p0, p1, p2, p3; // Control points
 
-    // Evaluate cubic B�zier curve at parameter t (0 to 1)
+    // Evaluate cubic Bezier curve at parameter t (0 to 1)
     glm::vec3 evaluate(float t) const {
         float u = 1.0f - t;
         float tt = t * t;
@@ -134,10 +134,10 @@ struct BezierCurve {
         float uuu = uu * u;
         float ttt = tt * t;
 
-        glm::vec3 point = uuu * p0;           // (1-t)� * P0
-        point += 3.0f * uu * t * p1;          // 3(1-t)�t * P1
-        point += 3.0f * u * tt * p2;          // 3(1-t)t� * P2
-        point += ttt * p3;                     // t� * P3
+        glm::vec3 point = uuu * p0;           // (1-t) * P0
+        point += 3.0f * uu * t * p1;          // 3(1-t)t * P1
+        point += 3.0f * u * tt * p2;          // 3(1-t)t * P2
+        point += ttt * p3;                     // t * P3
 
         return point;
     }
@@ -157,7 +157,7 @@ struct BezierCurve {
     }
 };
 
-// Bullet that travels along a B�zier curve at constant speed
+// Bullet that travels along a Bezier curve at constant speed
 class Bullet {
 public:
     BezierCurve curve;
@@ -342,127 +342,115 @@ public:
         buildWindmill();
     }
 
-    void buildWindmill() {
-        // Tower base
-        root = std::make_unique<WindmillNode>(
-            "TowerBase",
-            WesternPrimitive(WesternPrimitive::CUBE,
-                glm::vec3(0.8f, 0.3f, 0.8f),
-                glm::vec3(0.5f, 0.35f, 0.2f)) // Dark weathered wood
-        );
-        root->localPosition = glm::vec3(0.0f, -0.5f, 0.0f);
+void buildWindmill() {
+    // ── TOWER BASE (brown)
+    root = std::make_unique<WindmillNode>(
+        "TowerBase",
+        WesternPrimitive(WesternPrimitive::CUBE,
+            /*scale*/ glm::vec3(1.25f, 0.60f, 1.25f),
+            /*color*/ glm::vec3(0.45f, 0.30f, 0.18f))   // dark brown
+    );
+    root->localPosition = glm::vec3(0.0f, -0.30f, 0.0f);
 
-        // Tower middle
-        auto towerMid = std::make_unique<WindmillNode>(
-            "TowerMiddle",
-            WesternPrimitive(WesternPrimitive::CYLINDER,
-                glm::vec3(0.6f, 2.0f, 0.6f),
-                glm::vec3(0.55f, 0.35f, 0.15f))
-        );
-        towerMid->localPosition = glm::vec3(0.0f, 0.5f, 0.0f);
+    // ── TOWER MIDDLE (lighter brown)
+    auto towerMid = std::make_unique<WindmillNode>(
+        "TowerMiddle",
+        WesternPrimitive(WesternPrimitive::CYLINDER,
+            /*scale*/ glm::vec3(0.95f, 2.60f, 0.95f),
+            /*color*/ glm::vec3(0.62f, 0.43f, 0.24f))   // mid brown
+    );
+    towerMid->localPosition = glm::vec3(0.0f, 0.60f - 0.02f, 0.0f);
 
-        // Tower top
-        auto towerTop = std::make_unique<WindmillNode>(
-            "TowerTop",
-            WesternPrimitive(WesternPrimitive::CYLINDER,
-                glm::vec3(0.5f, 1.5f, 0.5f),
-                glm::vec3(0.5f, 0.3f, 0.1f))
-        );
-        towerTop->localPosition = glm::vec3(0.0f, 2.0f, 0.0f);
+    // ── TOWER TOP (extended downward; reddish tint)
+    auto towerTop = std::make_unique<WindmillNode>(
+        "TowerTop",
+        WesternPrimitive(WesternPrimitive::CYLINDER,
+            /*scale*/ glm::vec3(0.90f, 2.20f, 0.90f),   // taller so it reaches downward
+            /*color*/ glm::vec3(0.55f, 0.25f, 0.25f))   // warm red-brown
+    );
+    // place so the *bottom* sinks into towerMid a bit (no seam)
+    towerTop->localPosition = glm::vec3(0.0f, 2.60f - 0.20f, 0.0f);
 
-        // Platform
-        auto platform = std::make_unique<WindmillNode>(
-            "Platform",
-            WesternPrimitive(WesternPrimitive::CUBE,
-                glm::vec3(0.9f, 0.2f, 0.9f),
-                glm::vec3(0.4f, 0.25f, 0.1f))
-        );
-        platform->localPosition = glm::vec3(0.0f, 1.5f, 0.0f);
+    // ── PLATFORM (extended toward hub; cool steel)
+    auto platform = std::make_unique<WindmillNode>(
+        "Platform",
+        WesternPrimitive(WesternPrimitive::CUBE,
+            /*scale*/ glm::vec3(1.60f, 0.35f, 2.00f),   // deeper along +Z toward the hub
+            /*color*/ glm::vec3(0.35f, 0.45f, 0.55f))   // steel blue/gray
+    );
+    // sit near top of towerTop and nudge forward so its front approaches the hub
+    platform->localPosition = glm::vec3(0.0f, 0.95f - 0.02f, 0.15f);
 
-        // Hub (rotates!)
-        auto hub = std::make_unique<WindmillNode>(
-            "Hub",
-            WesternPrimitive(WesternPrimitive::CYLINDER,
-                glm::vec3(0.3f, 0.3f, 0.3f),
-                glm::vec3(0.3f, 0.3f, 0.3f)) // Dark metal
-        );
-        hub->localPosition = glm::vec3(0.0f, 0.2f, 0.6f);
-        hub->animateRotation = true;
-        hub->rotationAxis = glm::vec3(0.0f, 0.0f, 1.0f);
-        hub->rotationSpeed = windSpeed;
+    // ── HUB (charcoal)
+    auto hub = std::make_unique<WindmillNode>(
+        "Hub",
+        WesternPrimitive(WesternPrimitive::CYLINDER,
+            /*scale*/ glm::vec3(0.50f, 0.50f, 0.50f),
+            /*color*/ glm::vec3(0.18f, 0.18f, 0.20f))   // charcoal
+    );
+    // keep it clearly in front; platform depth now reaches closer to it
+    hub->localPosition   = glm::vec3(0.0f, 0.38f, 1.05f);
+    hub->animateRotation = true;
+    hub->rotationAxis    = glm::vec3(0.0f, 0.0f, 1.0f);
+    hub->rotationSpeed   = windSpeed;
 
-        // 4 Blades
-        auto blade1 = std::make_unique<WindmillNode>(
-            "Blade1",
-            WesternPrimitive(WesternPrimitive::BLADE,
-                glm::vec3(0.15f, 1.2f, 0.05f),
-                glm::vec3(0.7f, 0.6f, 0.5f)) // Light wood/metal
-        );
-        blade1->localPosition = glm::vec3(0.0f, 0.6f, 0.0f);
+    // ── BLADES (light wood)
+    const glm::vec3 bladeScale(0.22f, 1.95f, 0.08f);
+    const glm::vec3 bladeColor(0.80f, 0.72f, 0.58f);    // light wood
 
-        // Blade 2 (right)
-        auto blade2 = std::make_unique<WindmillNode>(
-            "Blade2",
-            WesternPrimitive(WesternPrimitive::BLADE,
-                glm::vec3(0.15f, 1.2f, 0.05f),
-                glm::vec3(0.7f, 0.6f, 0.5f))
-        );
-        blade2->localPosition = glm::vec3(0.6f, 0.0f, 0.0f);
-        blade2->localRotation = glm::vec3(0.0f, 0.0f, 90.0f); // Rotate 90 degrees
+    auto blade1 = std::make_unique<WindmillNode>(
+        "Blade1", WesternPrimitive(WesternPrimitive::BLADE, bladeScale, bladeColor));
+    blade1->localPosition = glm::vec3(0.0f, 0.98f, 0.0f);
 
-        // Blade 3 (bottom)
-        auto blade3 = std::make_unique<WindmillNode>(
-            "Blade3",
-            WesternPrimitive(WesternPrimitive::BLADE,
-                glm::vec3(0.15f, 1.2f, 0.05f),
-                glm::vec3(0.7f, 0.6f, 0.5f))
-        );
-        blade3->localPosition = glm::vec3(0.0f, -0.6f, 0.0f);
-        blade3->localRotation = glm::vec3(0.0f, 0.0f, 180.0f);
+    auto blade2 = std::make_unique<WindmillNode>(
+        "Blade2", WesternPrimitive(WesternPrimitive::BLADE, bladeScale, bladeColor));
+    blade2->localPosition = glm::vec3(0.98f, 0.0f, 0.0f);
+    blade2->localRotation = glm::vec3(0.0f, 0.0f, 90.0f);
 
-        // Blade 4 (left)
-        auto blade4 = std::make_unique<WindmillNode>(
-            "Blade4",
-            WesternPrimitive(WesternPrimitive::BLADE,
-                glm::vec3(0.15f, 1.2f, 0.05f),
-                glm::vec3(0.7f, 0.6f, 0.5f))
-        );
-        blade4->localPosition = glm::vec3(-0.6f, 0.0f, 0.0f);
-        blade4->localRotation = glm::vec3(0.0f, 0.0f, 270.0f);
+    auto blade3 = std::make_unique<WindmillNode>(
+        "Blade3", WesternPrimitive(WesternPrimitive::BLADE, bladeScale, bladeColor));
+    blade3->localPosition = glm::vec3(0.0f, -0.98f, 0.0f);
+    blade3->localRotation = glm::vec3(0.0f, 0.0f, 180.0f);
 
-        // Support struts
-        auto strut1 = std::make_unique<WindmillNode>(
-            "Strut1",
-            WesternPrimitive(WesternPrimitive::CYLINDER,
-                glm::vec3(0.1f, 1.0f, 0.1f),
-                glm::vec3(0.4f, 0.25f, 0.1f))
-        );
-        strut1->localPosition = glm::vec3(0.3f, -0.3f, 0.3f);
-        strut1->localRotation = glm::vec3(45.0f, 0.0f, 30.0f);
+    auto blade4 = std::make_unique<WindmillNode>(
+        "Blade4", WesternPrimitive(WesternPrimitive::BLADE, bladeScale, bladeColor));
+    blade4->localPosition = glm::vec3(-0.98f, 0.0f, 0.0f);
+    blade4->localRotation = glm::vec3(0.0f, 0.0f, 270.0f);
 
-        auto strut2 = std::make_unique<WindmillNode>(
-            "Strut2",
-            WesternPrimitive(WesternPrimitive::CYLINDER,
-                glm::vec3(0.1f, 1.0f, 0.1f),
-                glm::vec3(0.4f, 0.25f, 0.1f))
-        );
-        strut2->localPosition = glm::vec3(-0.3f, -0.3f, 0.3f);
-        strut2->localRotation = glm::vec3(45.0f, 0.0f, -30.0f);
+    // ── SUPPORT STRUTS (bronze)
+    auto strut1 = std::make_unique<WindmillNode>(
+        "Strut1",
+        WesternPrimitive(WesternPrimitive::CYLINDER,
+            /*scale*/ glm::vec3(0.16f, 1.55f, 0.16f),
+            /*color*/ glm::vec3(0.60f, 0.42f, 0.20f))   // bronze/wood
+    );
+    strut1->localPosition = glm::vec3(0.52f, -0.35f, 0.55f);
+    strut1->localRotation = glm::vec3(45.0f, 0.0f, 30.0f);
 
-        // Build hierarchy
-        hub->addChild(std::move(blade1));
-        hub->addChild(std::move(blade2));
-        hub->addChild(std::move(blade3));
-        hub->addChild(std::move(blade4));
+    auto strut2 = std::make_unique<WindmillNode>(
+        "Strut2",
+        WesternPrimitive(WesternPrimitive::CYLINDER,
+            /*scale*/ glm::vec3(0.16f, 1.55f, 0.16f),
+            /*color*/ glm::vec3(0.60f, 0.42f, 0.20f))
+    );
+    strut2->localPosition = glm::vec3(-0.52f, -0.35f, 0.55f);
+    strut2->localRotation = glm::vec3(45.0f, 0.0f, -30.0f);
 
-        platform->addChild(std::move(hub));
-        platform->addChild(std::move(strut1));
-        platform->addChild(std::move(strut2));
+    // ── hierarchy
+    hub->addChild(std::move(blade1));
+    hub->addChild(std::move(blade2));
+    hub->addChild(std::move(blade3));
+    hub->addChild(std::move(blade4));
 
-        towerTop->addChild(std::move(platform));
-        towerMid->addChild(std::move(towerTop));
-        root->addChild(std::move(towerMid));
-    }
+    platform->addChild(std::move(hub));
+    platform->addChild(std::move(strut1));
+    platform->addChild(std::move(strut2));
+
+    towerTop->addChild(std::move(platform));
+    towerMid->addChild(std::move(towerTop));
+    root->addChild(std::move(towerMid));
+}
+
 
     void update(float dt) {
         if (animationEnabled && root) {
@@ -507,7 +495,7 @@ public:
     std::vector<BezierCurve> curves;
 
     BezierPath() {
-        // Create a smooth camera path with 3+ cubic B�zier curves
+        // Create a smooth camera path with 3+ cubic Bzier curves
         // These create a swooping camera motion around the scene
 
         // Curve 1: Start -> upper right
@@ -596,7 +584,7 @@ class Application {
 public:
     Application()
         : m_window("Final Project", glm::ivec2(1024, 1024), OpenGLVersion::GL41)
-        , m_texture(RESOURCE_ROOT "resources/checkerboard.png")
+        , m_texture(RESOURCE_ROOT "resources/grass_albedo.png")
         , m_normalMap(RESOURCE_ROOT "resources/brick_normal.png") 
         , m_diffuseTexture(RESOURCE_ROOT "resources/brick_normal.png")
         , m_cameraPosition(0.0f, 1.5f, 5.0f)
@@ -632,8 +620,8 @@ public:
         m_window.registerScrollCallback(std::bind(&Application::onScroll, this, std::placeholders::_1));
 
         // Load models
-        m_meshesA = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps.obj");
-        m_meshesB = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps_mirrorX.obj");
+        m_meshesA = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_arms_down_both.obj");
+        m_meshesB = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/gunslinger_arms_down_both.obj");
         ground    = GPUMesh::loadMeshGPU(RESOURCE_ROOT "resources/ground_plane.obj");
 
         std::vector<std::string> faces = {
@@ -694,8 +682,6 @@ public:
         m_lights.push_back(PointLight{ glm::vec3(2.0f, 3.0f, 2.0f), glm::vec3(1.0f), 1.0f, 18.0f });
         selectedLightIndex = 0;
 
-        initShadowResources();
-        initWindmillPrimitives();
         initShadowResources();
         initWindmillPrimitives();
         initParticleRendering();
@@ -823,6 +809,22 @@ public:
 
             const double now = glfwGetTime();
             float dt = static_cast<float>(now - m_lastTime);
+            if (!m_walkInitDone) {
+                m_modelDistance = m_startSep;
+                m_walkInitDone  = true;
+            }
+
+            // Walk away from each other (backs to each other)
+            if (m_walkAway) {
+                // distance between the two doubles because both walk outwards
+                m_modelDistance = std::min(m_modelDistance + 2.0f * m_walkSpeed * dt, m_maxSep);
+            }
+
+            // If we just reached max separation, switch models and enable shooting once
+            if (!m_startedShootPhase && m_modelDistance >= m_maxSep - 1e-4f) {
+                enterShootPhase();
+            }
+
             m_lastTime = now;
             dt = glm::clamp(dt, 0.0f, 0.05f);
 
@@ -863,18 +865,13 @@ public:
                 ImGui::ColorEdit3("Albedo", glm::value_ptr(m_albedo));
             }
 
-            ImGui::Separator();
-            ImGui::Text("Material");
-            ImGui::SliderFloat("kd (diffuse)", &m_kd, 0.0f, 2.0f);
-            ImGui::SliderFloat("ks (specular)", &m_ks, 0.0f, 2.0f);
-            ImGui::SliderFloat("Shininess", &m_shininess, 1.0f, 256.0f);
             ImGui::Checkbox("Enable Environment Map", &m_enableEnvironmentMap);  // ? Add this
             if (m_enableEnvironmentMap) {
                 ImGui::SliderFloat("Reflectivity", &m_reflectivity, 0.0f, 1.0f);  // ? Add this
             }
 
             ImGui::Separator();
-            ImGui::Text("B�zier Camera Path");
+            ImGui::Text("Bezier Camera Path");
             ImGui::Checkbox("Follow Path", &m_followPath);
             ImGui::Checkbox("Show Path Curve", &m_showPathCurve);
             if (m_followPath) {
@@ -889,7 +886,21 @@ public:
             ImGui::Text("Western Windmill");
             ImGui::Checkbox("Enable Windmill Animation", &m_windmill.animationEnabled);
             ImGui::SliderFloat("Wind Speed", &m_windmill.windSpeed, 0.0f, 100.0f);
-            ImGui::DragFloat3("Windmill Position", glm::value_ptr(m_windmillPosition), 0.1f, -20.0f, 20.0f);
+            for (size_t i = 0; i < m_windmillPositions.size(); ++i) {
+                ImGui::PushID(static_cast<int>(i));
+                ImGui::DragFloat3("Windmill Position",
+                                  glm::value_ptr(m_windmillPositions[i]),
+                                  0.1f, -20.0f, 20.0f);
+                ImGui::PopID();
+            }
+
+            ImGui::Checkbox("Walk Away (auto)", &m_walkAway);
+            ImGui::SliderFloat("Walk Speed (u/s per char)", &m_walkSpeed, 0.0f, 3.0f);
+            ImGui::SliderFloat("Max Separation", &m_maxSep, 0.5f, 20.0f);
+            ImGui::Text("Current Separation: %.2f", m_modelDistance);
+
+            ImGui::Text("Phase: %s", m_startedShootPhase ? "Shoot" : "Walk");
+
 
             ImGui::Separator();
             ImGui::Text("Mexican Standoff Controls");
@@ -981,69 +992,88 @@ public:
             renderModel(ground, glm::mat4(1.0f), /*isGround*/true);
 
             // Characters (occluders only, not receivers)
-            glm::mat4 modelMatrixA = glm::translate(glm::mat4(1.0f), glm::vec3(-m_modelDistance * 0.5f, 0.0f, 0.0f));
-            glm::mat4 modelMatrixB = glm::translate(glm::mat4(1.0f), glm::vec3( m_modelDistance * 0.5f, 0.0f, 0.0f));
+            // Back-to-back orientation: left +90°, right -90° around Y
+            glm::mat4 rotLeft  = glm::rotate(glm::mat4(1.0f), glm::radians( 90.0f), glm::vec3(0,1,0));
+            glm::mat4 rotRight = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0,1,0));
+
+            glm::mat4 modelMatrixA =
+                glm::translate(glm::mat4(1.0f), glm::vec3(-m_modelDistance * 0.5f, 0.0f, 0.0f)) * rotLeft;
+            glm::mat4 modelMatrixB =
+                glm::translate(glm::mat4(1.0f), glm::vec3( m_modelDistance * 0.5f, 0.0f, 0.0f)) * rotRight;
+
+            if (m_applyShootRot) {
+                // Left model:  -90° about Y
+                glm::mat4 zLeft  = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0,1,0));
+                // Right model: +90° about Y
+                glm::mat4 zRight = glm::rotate(glm::mat4(1.0f), glm::radians( 90.0f), glm::vec3(0,1, 0));
+
+                modelMatrixA = modelMatrixA * zLeft;
+                modelMatrixB = modelMatrixB * zRight;
+
+                // renderShadowMaps();
+            }
+
             renderModel(m_meshesA, modelMatrixA, /*isGround*/false);
             renderModel(m_meshesB, modelMatrixB, /*isGround*/false);
 
-            renderWindmill();
+            renderWindmills();
 
             m_window.swapBuffers();
         }
     }
 
-    void renderWindmill() {
-        std::vector<std::pair<WindmillNode*, glm::mat4>> renderData;
-        m_windmill.collectRenderData(renderData);
+    void renderWindmills() {
+    // gather nodes once
+    std::vector<std::pair<WindmillNode*, glm::mat4>> renderData;
+    m_windmill.collectRenderData(renderData);
 
-        glm::mat4 windmillWorldTransform = glm::translate(glm::mat4(1.0f), m_windmillPosition);
+    Shader& shader = m_defaultShader;
+    shader.bind();
 
-        Shader& shader = m_defaultShader;
-        shader.bind();
+    // lights (same as before)
+    int n = std::min((int)m_lights.size(), MAX_LIGHTS);
+    std::vector<glm::vec3> lp(n), lc(n);
+    std::vector<float>     li(n);
+    for (int i = 0; i < n; ++i) { lp[i]=m_lights[i].position; lc[i]=m_lights[i].color; li[i]=m_lights[i].intensity; }
 
-        int n = std::min((int)m_lights.size(), MAX_LIGHTS);
-        glm::vec3 lp[MAX_LIGHTS], lc[MAX_LIGHTS];
-        float li[MAX_LIGHTS];
-        for (int i = 0; i < n; ++i) {
-            lp[i] = m_lights[i].position;
-            lc[i] = m_lights[i].color;
-            li[i] = m_lights[i].intensity;
-        }
+    glUniform1i(shader.getUniformLocation("numLights"), n);
+    if (n > 0) {
+        glUniform3fv(shader.getUniformLocation("lightPosition"),  n, glm::value_ptr(lp[0]));
+        glUniform3fv(shader.getUniformLocation("lightColor"),     n, glm::value_ptr(lc[0]));
+        glUniform1fv(shader.getUniformLocation("lightIntensity"), n, li.data());
+    }
+    glUniform3fv(shader.getUniformLocation("viewPosition"), 1, glm::value_ptr(m_cameraPosition));
+    glUniform1f(shader.getUniformLocation("kd"), 0.7f);
+    glUniform1f(shader.getUniformLocation("ks"), 0.1f);
+    glUniform1f(shader.getUniformLocation("shininess"), 8.0f);
+    glUniform1i(shader.getUniformLocation("hasTexCoords"), GL_FALSE);
+    glUniform1i(shader.getUniformLocation("useMaterial"),  GL_TRUE);
+    glUniform1i(shader.getUniformLocation("isGround"),     0);
 
-        glUniform1i(shader.getUniformLocation("numLights"), n);
-        if (n > 0) {
-            glUniform3fv(shader.getUniformLocation("lightPosition"), n, glm::value_ptr(lp[0]));
-            glUniform3fv(shader.getUniformLocation("lightColor"), n, glm::value_ptr(lc[0]));
-            glUniform1fv(shader.getUniformLocation("lightIntensity"), n, li);
-        }
-        glUniform3fv(shader.getUniformLocation("viewPosition"), 1, glm::value_ptr(m_cameraPosition));
-        glUniform1f(shader.getUniformLocation("kd"), 0.7f);
-        glUniform1f(shader.getUniformLocation("ks"), 0.1f);
-        glUniform1f(shader.getUniformLocation("shininess"), 8.0f);
-        glUniform1i(shader.getUniformLocation("hasTexCoords"), GL_FALSE);
-        glUniform1i(shader.getUniformLocation("useMaterial"), GL_TRUE);
-        glUniform1i(shader.getUniformLocation("isGround"), 0);
-        glUniform1i(shader.getUniformLocation("numShadowMaps"), 0);
+    // explicitly disable shadow sampling for windmills
+    glUniform1i(shader.getUniformLocation("numShadowMaps"), 0);
 
-        for (auto& [node, localTransform] : renderData) {
-            glm::mat4 finalTransform = windmillWorldTransform * localTransform;
-            glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), node->primitive.scale);
-            glm::mat4 modelMatrix = finalTransform * scaleMatrix;
+    glBindVertexArray(m_cubeVAO);
 
-            glm::mat4 mvp = m_projectionMatrix * m_viewMatrix * modelMatrix;
-            glm::mat3 normalMatrix = glm::inverseTranspose(glm::mat3(modelMatrix));
+    for (const glm::vec3& pos : m_windmillPositions) {
+        glm::mat4 world = glm::translate(glm::mat4(1.0f), pos);
 
-            glUniformMatrix4fv(shader.getUniformLocation("mvpMatrix"), 1, GL_FALSE, glm::value_ptr(mvp));
-            glUniformMatrix4fv(shader.getUniformLocation("modelMatrix"), 1, GL_FALSE, glm::value_ptr(modelMatrix));
-            glUniformMatrix3fv(shader.getUniformLocation("normalModelMatrix"), 1, GL_FALSE, glm::value_ptr(normalMatrix));
-            glUniform3fv(shader.getUniformLocation("materialColor"), 1, glm::value_ptr(node->primitive.color));
+        for (auto& [node, local] : renderData) {
+            glm::mat4 model = world * local * glm::scale(glm::mat4(1.0f), node->primitive.scale);
+            glm::mat4 mvp   = m_projectionMatrix * m_viewMatrix * model;
+            glm::mat3 nrm   = glm::inverseTranspose(glm::mat3(model));
 
-            glBindVertexArray(m_cubeVAO);
+            glUniformMatrix4fv(shader.getUniformLocation("mvpMatrix"),         1, GL_FALSE, glm::value_ptr(mvp));
+            glUniformMatrix4fv(shader.getUniformLocation("modelMatrix"),       1, GL_FALSE, glm::value_ptr(model));
+            glUniformMatrix3fv(shader.getUniformLocation("normalModelMatrix"), 1, GL_FALSE, glm::value_ptr(nrm));
+            glUniform3fv(shader.getUniformLocation("materialColor"),           1, glm::value_ptr(node->primitive.color));
+
             glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
         }
-
-        glBindVertexArray(0);
     }
+
+    glBindVertexArray(0);
+}
 
     void initPathRendering() {
         m_pathLineSegments = m_cameraPath.generateLineSegments(30); // 30 segments per curve
@@ -1135,8 +1165,33 @@ private:
     std::vector<glm::vec3> m_pathLineSegments;
     Shader m_pathShader;
 
+    // --- Walk-away behaviour ---
+    bool  m_walkAway     { true };   // start with auto-walk enabled
+    float m_startSep     { 0.60f };  // tiny initial gap
+    float m_walkSpeed    { 0.25f };   // units/s per character
+    float m_maxSep       { 6.0f };   // clamp maximum distance
+    bool  m_walkInitDone { false };  // one-time init flag
+
+    // --- Shoot phase trigger ---
+    bool  m_startedShootPhase { false };
+
+    // Optional: alternate meshes to use once separated
+    std::vector<GPUMesh> m_meshesA_aim, m_meshesB_aim;
+
+    // File paths for the “aiming” (or alternate) meshes.
+    // Replace with whatever filenames you actually have.
+    const char* m_leftAimMeshPath  = RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps.obj";
+    const char* m_rightAimMeshPath = RESOURCE_ROOT "resources/gunslinger_cylindrical_v3_caps_mirrorX.obj";
+
+
     WesternWindmill m_windmill;
-    glm::vec3 m_windmillPosition{ -5.0f, 0.0f, -5.0f };
+    std::vector<glm::vec3> m_windmillPositions{
+        { -12.0f, 0.0f, -20.0f },
+        {  -6.0f, 0.0f, -22.0f },
+        {   0.0f, 0.0f, -24.0f },
+        {   6.0f, 0.0f, -22.0f },
+        {  12.0f, 0.0f, -20.0f }
+    };
     GLuint m_cubeVAO{ 0 }, m_cubeVBO{ 0 }, m_cubeIBO{ 0 };
 
      ParticleSystem m_particleSystem;
@@ -1145,6 +1200,7 @@ private:
      bool m_autoShoot{false};
      float m_shootTimer{0.0f};
      bool m_characterHit[2] = {false, false};
+    bool m_applyShootRot{ false };
 
     GLuint loadCubemap(const std::vector<std::string>& faces)
     {
@@ -1193,8 +1249,10 @@ private:
             // Use linear filtering to soften PCF further
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+            const float border[4] = {1.0f, 1.0f, 1.0f, 1.0f}; // depth=1 => fully lit outside
+            glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
 
             glBindFramebuffer(GL_FRAMEBUFFER, m_shadowFBO[i]);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_shadowDepth[i], 0);
@@ -1255,24 +1313,32 @@ private:
     // Perspective shadow camera from the light toward the scene.
     glm::mat4 buildLightViewProjPerspective(const glm::vec3& lightPos) const
     {
-        glm::vec3 sceneCenter(0.0f, 0.0f, 0.0f);                // center on ground
-        float radius = 2.5f + 0.5f * m_modelDistance;
-        radius += std::abs(lightPos.y) * 1.5f;                  // include long shadows
+        // --- CHANGE #1: focus the light on the midpoint between the models (on ground) ---
+        const glm::vec3 left  (-m_modelDistance * 0.5f, 0.0f, 0.0f);
+        const glm::vec3 right ( m_modelDistance * 0.5f, 0.0f, 0.0f);
+        glm::vec3 sceneCenter = 0.5f * (left + right);          // was glm::vec3(0,0,0)
+
+        // --- CHANGE #2: inflate coverage so shadows don't get cut at the frustum edge ---
+        // cover roughly the duel area + some extra for long shadows
+        float radius = glm::max(8.0f, m_modelDistance * 2.0f);   // was 2.5f + 0.5f*m_modelDistance
+        radius += std::abs(lightPos.y) * 1.5f;                   // keep your vertical slack
 
         glm::vec3 dir = sceneCenter - lightPos;
-        glm::vec3 up = (std::abs(glm::dot(glm::normalize(dir), glm::vec3(0,1,0))) > 0.95f)
-                       ? glm::vec3(0,0,1) : glm::vec3(0,1,0);
-        glm::mat4 V = glm::lookAt(lightPos, sceneCenter, up);
+        glm::vec3 up  = (std::abs(glm::dot(glm::normalize(dir), glm::vec3(0,1,0))) > 0.95f)
+                      ? glm::vec3(0,0,1) : glm::vec3(0,1,0);
+        glm::mat4 V   = glm::lookAt(lightPos, sceneCenter, up);
 
-        float dist = glm::length(dir);
-        float nearZ = std::max(0.10f, dist - radius);
-        float farZ  =           dist + radius + 20.0f;          // more slack to avoid clipping
-        float fov = 2.0f * std::atan(radius / std::max(0.1f, dist));
-        fov = glm::clamp(fov, glm::radians(30.0f), glm::radians(120.0f));
+        float dist  = glm::length(dir);
+        float nearZ = 0.05f;                                     // simpler + safer near
+        float farZ  = dist + radius * 2.0f;                      // was dist + radius + 20.0f
+
+        float fov   = 2.0f * std::atan(radius / glm::max(0.1f, dist));
+        fov         = glm::clamp(fov, glm::radians(30.0f), glm::radians(160.0f)); // slightly wider max
 
         glm::mat4 P = glm::perspective(fov, 1.0f, nearZ, farZ);
         return P * V;
     }
+
 
     void renderShadowMaps()
     {
@@ -1292,19 +1358,76 @@ private:
 
             auto drawDepth = [&](std::vector<GPUMesh>& meshes, const glm::mat4& modelMatrix) {
                 const glm::mat4 mvp = m_lightViewProj[i] * modelMatrix;
-                glUniformMatrix4fv(m_shadowShader.getUniformLocation("lightMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
+                glUniformMatrix4fv(m_shadowShader.getUniformLocation("lightMVP"),
+                                   1, GL_FALSE, glm::value_ptr(mvp));
                 for (auto& m : meshes) m.draw(m_shadowShader);
             };
 
-            glm::mat4 modelMatrixA = glm::translate(glm::mat4(1.0f), glm::vec3(-m_modelDistance * 0.5f, 0.0f, 0.0f));
-            glm::mat4 modelMatrixB = glm::translate(glm::mat4(1.0f), glm::vec3( m_modelDistance * 0.5f, 0.0f, 0.0f));
+            glm::mat4 rotLeft  = glm::rotate(glm::mat4(1.0f), glm::radians( 90.0f), glm::vec3(0,1,0));
+            glm::mat4 rotRight = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0,1,0));
 
+            glm::mat4 modelMatrixA =
+                glm::translate(glm::mat4(1.0f), glm::vec3(-m_modelDistance * 0.5f, 0.0f, 0.0f)) * rotLeft;
+            glm::mat4 modelMatrixB =
+                glm::translate(glm::mat4(1.0f), glm::vec3( m_modelDistance * 0.5f, 0.0f, 0.0f)) * rotRight;
+
+            if (m_applyShootRot) {
+                // Left model:  -90° about Y
+                glm::mat4 zLeft  = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0,1,0));
+                // Right model: +90° about Y
+                glm::mat4 zRight = glm::rotate(glm::mat4(1.0f), glm::radians( 90.0f), glm::vec3(0,1, 0));
+
+                modelMatrixA = modelMatrixA * zLeft;
+                modelMatrixB = modelMatrixB * zRight;
+
+            }
+
+            // Characters into shadow map
             drawDepth(m_meshesA, modelMatrixA);
             drawDepth(m_meshesB, modelMatrixB);
+
+
+            //drawWindmillDepth(m_lightViewProj[i]);
         }
+
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    }
+
+    void enterShootPhase()
+    {
+        if (m_startedShootPhase) return;
+        m_startedShootPhase = true;
+
+        // Stop walking exactly at max separation so they don't drift
+        m_walkAway    = false;
+        m_modelDistance = m_maxSep;
+
+        // Try to load alternate “aiming” meshes. If unavailable, silently keep current ones.
+        try {
+            m_meshesA_aim = GPUMesh::loadMeshGPU(m_leftAimMeshPath);
+        } catch (...) {
+            m_meshesA_aim.clear();
+        }
+        try {
+            m_meshesB_aim = GPUMesh::loadMeshGPU(m_rightAimMeshPath);
+        } catch (...) {
+            m_meshesB_aim.clear();
+        }
+
+        // If both alternates loaded, swap them in
+        if (!m_meshesA_aim.empty()) m_meshesA = std::move(m_meshesA_aim);
+        if (!m_meshesB_aim.empty()) m_meshesB = std::move(m_meshesB_aim);
+
+        // Flip on auto-shoot
+        m_autoShoot  = true;
+
+        // Optional: quick first shot so it feels immediate
+        m_shootTimer = 0.2f; // first random shot soon
+
+        // >>> enable the Z-rotations after we’ve switched
+        m_applyShootRot = true;
     }
 
     // ---------- Camera + draw helpers ----------
@@ -1373,7 +1496,8 @@ private:
         glActiveTexture(GL_TEXTURE0);
 
         for (GPUMesh& mesh : meshes) {
-            Shader& shader = m_enablePBR ? m_pbrShader : m_defaultShader;
+
+            Shader& shader = (!isGround && m_enablePBR) ? m_pbrShader : m_defaultShader;
             shader.bind();
 
             // ? ADD ALL THESE UNIFORMS (you had these before but removed them)
@@ -1408,7 +1532,7 @@ private:
             }
             glUniform1i(shader.getUniformLocation("isGround"), isGround ? 1 : 0);
 
-            glm::vec3 matColor = glm::vec3(0.8f);
+            glm::vec3 matColor = glm::vec3(0.75f, 0.75f, 0.78f); // soft neutral gray
             glUniform3fv(shader.getUniformLocation("materialColor"), 1, glm::value_ptr(matColor));
 
             if (m_enableEnvironmentMap) {
@@ -1423,36 +1547,33 @@ private:
                 glUniform1i(shader.getUniformLocation("enableEnvironmentMap"), GL_FALSE);
             }
 
-            if (mesh.hasTextureCoords()) {
-                // Choose which texture to use based on toggle
-                if (m_enableDiffuseTexture) {
-                    glActiveTexture(GL_TEXTURE0);
-                    m_diffuseTexture.bind(GL_TEXTURE0);  // ? Use your custom texture
-                }
-                else {
-                    glActiveTexture(GL_TEXTURE0);
-                    m_texture.bind(GL_TEXTURE0);  // Use default checkerboard
-                }
-
+            // ---- Diffuse source: checkerboard ONLY for ground; solid color for characters ----
+            if (isGround) {
+                // Ground uses checkerboard texture
+                glActiveTexture(GL_TEXTURE0);
+                m_texture.bind(GL_TEXTURE0);                             // checkerboard
                 glUniform1i(shader.getUniformLocation("colorMap"), 0);
                 glUniform1i(shader.getUniformLocation("hasTexCoords"), GL_TRUE);
-                glUniform1i(shader.getUniformLocation("useMaterial"), GL_FALSE);
+                glUniform1i(shader.getUniformLocation("useMaterial"),  GL_FALSE);
 
-                if (m_enableNormalMap) {
+                // Typically no normal map for the ground plane
+                glUniform1i(shader.getUniformLocation("hasNormalMap"), GL_FALSE);
+            } else {
+                // Characters: solid material color (no diffuse texture)
+                glUniform1i(shader.getUniformLocation("hasTexCoords"), GL_FALSE);
+                glUniform1i(shader.getUniformLocation("useMaterial"),  GL_TRUE);
+
+                // Optional: only allow normal map on characters if you really want it
+                if (m_enableNormalMap && mesh.hasTextureCoords()) {
                     glActiveTexture(GL_TEXTURE0 + MAX_SHADOW_LIGHTS + 1);
                     m_normalMap.bind(GL_TEXTURE0 + MAX_SHADOW_LIGHTS + 1);
                     glUniform1i(shader.getUniformLocation("normalMap"), MAX_SHADOW_LIGHTS + 1);
                     glUniform1i(shader.getUniformLocation("hasNormalMap"), GL_TRUE);
-                }
-                else {
+                } else {
                     glUniform1i(shader.getUniformLocation("hasNormalMap"), GL_FALSE);
                 }
             }
-            else {
-                glUniform1i(shader.getUniformLocation("hasTexCoords"), GL_FALSE);
-                glUniform1i(shader.getUniformLocation("useMaterial"), m_useMaterial);
-                glUniform1i(shader.getUniformLocation("hasNormalMap"), GL_FALSE);
-            }
+
 
             if (m_enablePBR) {
                 glUniform1f(shader.getUniformLocation("metallic"), m_metallic);
@@ -1516,6 +1637,34 @@ private:
             m_viewMatrix = glm::lookAt(m_cameraPosition, m_cameraTarget, m_cameraUp);
         }
     }
+
+    void drawWindmillDepth(const glm::mat4& lightVP)
+    {
+        // Collect hierarchy (local transforms) once
+        std::vector<std::pair<WindmillNode*, glm::mat4>> renderData;
+        m_windmill.collectRenderData(renderData);
+
+        // shadow shader is already bound by the caller
+        const GLint locLightMVP = m_shadowShader.getUniformLocation("lightMVP");
+
+        glBindVertexArray(m_cubeVAO);
+
+        // For every windmill instance…
+        for (const glm::vec3& pos : m_windmillPositions) {
+            const glm::mat4 world = glm::translate(glm::mat4(1.0f), pos);
+
+            // …draw every node of the hierarchy
+            for (auto& [node, localTransform] : renderData) {
+                const glm::mat4 model    = world * localTransform * glm::scale(glm::mat4(1.0f), node->primitive.scale);
+                const glm::mat4 lightMVP = lightVP * model;
+                glUniformMatrix4fv(locLightMVP, 1, GL_FALSE, glm::value_ptr(lightMVP));
+                glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
+            }
+        }
+
+        glBindVertexArray(0);
+    }
+
 
 
 
@@ -1668,7 +1817,7 @@ private:
     GLuint m_dummyVAO { 0 };
 
     // Model positioning
-    float m_modelDistance { 2.0f };
+    float m_modelDistance { 0.20f };
 
     // Matrices
     glm::mat4 m_projectionMatrix = glm::perspective(glm::radians(80.0f), 1.0f, 0.1f, 30.0f);
