@@ -1002,13 +1002,15 @@ public:
                 glm::translate(glm::mat4(1.0f), glm::vec3( m_modelDistance * 0.5f, 0.0f, 0.0f)) * rotRight;
 
             if (m_applyShootRot) {
-                // Left model:  -90° about Z
+                // Left model:  -90° about Y
                 glm::mat4 zLeft  = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0,1,0));
-                // Right model: +90° about Z
+                // Right model: +90° about Y
                 glm::mat4 zRight = glm::rotate(glm::mat4(1.0f), glm::radians( 90.0f), glm::vec3(0,1, 0));
 
                 modelMatrixA = modelMatrixA * zLeft;
                 modelMatrixB = modelMatrixB * zRight;
+
+                // renderShadowMaps();
             }
 
             renderModel(m_meshesA, modelMatrixA, /*isGround*/false);
@@ -1360,6 +1362,17 @@ private:
                 glm::translate(glm::mat4(1.0f), glm::vec3(-m_modelDistance * 0.5f, 0.0f, 0.0f)) * rotLeft;
             glm::mat4 modelMatrixB =
                 glm::translate(glm::mat4(1.0f), glm::vec3( m_modelDistance * 0.5f, 0.0f, 0.0f)) * rotRight;
+
+            if (m_applyShootRot) {
+                // Left model:  -90° about Y
+                glm::mat4 zLeft  = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0,1,0));
+                // Right model: +90° about Y
+                glm::mat4 zRight = glm::rotate(glm::mat4(1.0f), glm::radians( 90.0f), glm::vec3(0,1, 0));
+
+                modelMatrixA = modelMatrixA * zLeft;
+                modelMatrixB = modelMatrixB * zRight;
+
+            }
 
             // Characters into shadow map
             drawDepth(m_meshesA, modelMatrixA);
