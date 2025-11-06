@@ -15,7 +15,6 @@ struct MeshLoadingException : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
-// Alignment directives are to comply with std140 alignment requirements (https://www.khronos.org/opengl/wiki/Interface_Block_(GLSL)#Memory_layout)
 struct GPUMaterial {
     GPUMaterial(const Material& material);
 
@@ -28,22 +27,18 @@ struct GPUMaterial {
 class GPUMesh {
 public:
     GPUMesh(const Mesh& cpuMesh);
-    // Cannot copy a GPU mesh because it would require reference counting of GPU resources.
+    
     GPUMesh(const GPUMesh&) = delete;
     GPUMesh(GPUMesh&&);
     ~GPUMesh();
-
-    // Generate a number of GPU meshes from a particular model file.
-    // Multiple meshes may be generated if there are multiple sub-meshes in the file
+   
     static std::vector<GPUMesh> loadMeshGPU(std::filesystem::path filePath, bool normalize = false);
-
-    // Cannot copy a GPU mesh because it would require reference counting of GPU resources.
+   
     GPUMesh& operator=(const GPUMesh&) = delete;
     GPUMesh& operator=(GPUMesh&&);
 
     bool hasTextureCoords() const;
-
-    // Bind VAO and call glDrawElements.
+   
     void draw(const Shader& drawingShader);
 
 private:

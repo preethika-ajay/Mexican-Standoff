@@ -109,7 +109,7 @@ ShaderBuilder& ShaderBuilder::addStage(GLuint shaderStage, std::filesystem::path
 
 Shader ShaderBuilder::build()
 {
-    // Combine vertex and fragment shaders into a single shader program.
+    
     GLuint program = glCreateProgram();
     for (GLuint shader : m_shaders)
         glAttachShader(program, shader);
@@ -139,11 +139,11 @@ static std::string readFile(std::filesystem::path filePath)
 
 static bool checkShaderErrors(GLuint shader)
 {
-    // Check if the shader compiled successfully.
+    
     GLint compileSuccessful;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &compileSuccessful);
 
-    // If it didn't, then read and print the compile log.
+    
     if (!compileSuccessful) {
         GLint logLength;
         glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
@@ -161,11 +161,11 @@ static bool checkShaderErrors(GLuint shader)
 
 static bool checkProgramErrors(GLuint program)
 {
-    // Check if the program linked successfully
+    
     GLint linkSuccessful;
     glGetProgramiv(program, GL_LINK_STATUS, &linkSuccessful);
 
-    // If it didn't, then read and print the link log
+    
     if (!linkSuccessful) {
         GLint logLength;
         glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
