@@ -104,7 +104,7 @@ void main()
 
     vec3 V = normalize(viewPosition - fragPosition);
     vec3 rgb = vec3(0.0);
-    const float ambientStrength = 0.08;
+    const float ambientStrength = 0.03;
 
     for (int i = 0; i < numLights; ++i) {
         vec3 Ldir = lightPosition[i] - fragPosition;

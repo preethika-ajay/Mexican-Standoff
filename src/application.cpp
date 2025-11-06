@@ -1088,9 +1088,9 @@ private:
     GLuint m_shadowFBO   [MAX_SHADOW_LIGHTS] = {0};
     GLuint m_shadowDepth [MAX_SHADOW_LIGHTS] = {0};
     glm::mat4 m_lightViewProj[MAX_SHADOW_LIGHTS];
-    int   m_shadowMapSize  = 1024;
+    int   m_shadowMapSize  = 3266;
     float m_pcfTexelScale  = 1.0f;
-    float m_shadowBias     = 0.0025f;
+    float m_shadowBias     = 0.001;
     float m_shadowMinNdotL = 0.08f; 
     Shader m_pbrShader;
     bool   m_enablePBR{ false };
@@ -1112,7 +1112,7 @@ private:
     GLuint m_pathVBO{ 0 };
     std::vector<glm::vec3> m_pathLineSegments;
     Shader m_pathShader;
-    bool  m_walkAway     { true };   
+    bool  m_walkAway     { false };
     float m_startSep     { 0.60f };  
     float m_walkSpeed    { 0.25f };   
     float m_maxSep       { 6.0f };   
@@ -1252,13 +1252,16 @@ private:
     }
     
     glm::mat4 buildLightViewProjPerspective(const glm::vec3& lightPos) const
-    {        
+    {
         const glm::vec3 left  (-m_modelDistance * 0.5f, 0.0f, 0.0f);
         const glm::vec3 right ( m_modelDistance * 0.5f, 0.0f, 0.0f);
-        glm::vec3 sceneCenter = 0.5f * (left + right);          
- 
-        float radius = glm::max(8.0f, m_modelDistance * 2.0f);   
-        radius += std::abs(lightPos.y) * 1.5f;                   
+        glm::vec3 sceneCenter = 0.5f * (left + right);
+
+
+        float padding = 4.0f;
+        float radius = glm::max(8.0f, m_modelDistance * 2.0f)
+                     + std::abs(lightPos.y) * 1.5f
+                     + padding;
 
         glm::vec3 dir = sceneCenter - lightPos;
         glm::vec3 up  = (std::abs(glm::dot(glm::normalize(dir), glm::vec3(0,1,0))) > 0.95f)
@@ -1266,12 +1269,11 @@ private:
         glm::mat4 V   = glm::lookAt(lightPos, sceneCenter, up);
 
         float dist  = glm::length(dir);
-        float nearZ = 0.05f;                                     
-        float farZ  = dist + radius * 2.0f;                      
+        float nearZ = 0.05f;
+        float farZ  = dist + radius * 2.5f;
 
         float fov   = 2.0f * std::atan(radius / glm::max(0.1f, dist));
-        fov         = glm::clamp(fov, glm::radians(30.0f), glm::radians(160.0f)); 
-
+        fov         = glm::clamp(fov, glm::radians(30.0f), glm::radians(170.0f));
         glm::mat4 P = glm::perspective(fov, 1.0f, nearZ, farZ);
         return P * V;
     }
