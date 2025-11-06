@@ -1,5 +1,5 @@
 #include "image.h"
-// Suppress warnings in third-party code.
+
 #include <framework/disable_all_warnings.h>
 DISABLE_WARNINGS_PUSH()
 #define STB_IMAGE_IMPLEMENTATION
@@ -12,14 +12,11 @@ DISABLE_WARNINGS_POP()
 #include <iostream>
 #include <string>
 
-
-// write image to a file
 void Image::writeBitmapToFile(const std::filesystem::path& filePath) {
     std::string filePathString = filePath.string();
     stbi_write_bmp(filePathString.c_str(), width, height, channels, pixels.data());
 }
 
-// Image constructor, create image from file
 Image::Image(const std::filesystem::path& filePath)
 {
 	if (!std::filesystem::exists(filePath)) {
@@ -27,7 +24,7 @@ Image::Image(const std::filesystem::path& filePath)
 		throw std::exception();
 	}
 
-	const auto filePathStr = filePath.string(); // Create l-value so c_str() is safe.
+	const auto filePathStr = filePath.string(); 
 	stbi_uc* stbPixels = stbi_load(filePathStr.c_str(), &width, &height, &channels, STBI_default);
 
 	if (!stbPixels) {

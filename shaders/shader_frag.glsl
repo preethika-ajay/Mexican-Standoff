@@ -17,26 +17,26 @@ uniform bool enableEnvironmentMap;
 uniform vec3 materialColor;
 uniform vec3 viewPosition;
 
-// material
+
 uniform float kd;
 uniform float ks;
 uniform float shininess;
 uniform float reflectivity;
 
-// lights
+
 uniform int   numLights;
 uniform vec3  lightPosition[32];
 uniform vec3  lightColor[32];
 uniform float lightIntensity[32];
 
-// shadows (ground receiver only)
+
 const int MAX_SHADOW_LIGHTS = 16;
 uniform int  numShadowMaps;
 uniform sampler2D shadowMaps[MAX_SHADOW_LIGHTS];
 uniform mat4 lightViewProj[MAX_SHADOW_LIGHTS];
-uniform vec2 shadowTexelSize;     // (pcfScale/size, pcfScale/size)
+uniform vec2 shadowTexelSize;     
 uniform float shadowBias;
-uniform float shadowMinNdotL;     // skip lights nearly parallel to ground
+uniform float shadowMinNdotL;     
 
 uniform int isGround;
 
@@ -49,7 +49,7 @@ float shadowPCF(int idx, vec3 worldPos, float bias)
     vec2 uv   = proj.xy * 0.5 + 0.5;
     float z   = proj.z * 0.5 + 0.5;
 
-    // outside map => lit
+    
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
 
     float s = 0.0;
@@ -64,9 +64,9 @@ float shadowPCF(int idx, vec3 worldPos, float bias)
 
 void main()
 {
-    vec3 albedo = materialColor;   // no diffuse texture
+    vec3 albedo = materialColor;   
 
-    // -------- Ground: only ambient + shadows (no direct lighting) --------
+    
     if (isGround == 1) {
         albedo = texture(colorMap, fragTexCoord).rgb;
         const float ambientGround  = 0.20;
@@ -78,10 +78,10 @@ void main()
 
         for (int i = 0; i < ns; ++i) {
             vec3 Ldir = normalize(lightPosition[i] - fragPosition);
-            float ndotl_abs = abs(dot(Nground, Ldir)); // 1: perpendicular, 0: parallel
+            float ndotl_abs = abs(dot(Nground, Ldir)); 
             if (ndotl_abs < shadowMinNdotL) continue;
 
-            // slope-scaled bias: more at grazing angles
+            
             float bias = mix(shadowBias * 0.30, shadowBias * 1.50, 1.0 - ndotl_abs);
 
             avgShadow += shadowPCF(i, fragPosition, bias);
@@ -90,12 +90,12 @@ void main()
         if (valid > 0) avgShadow /= float(valid);
 
         vec3 rgb = albedo * (ambientGround * (1.0 - shadowStrength * avgShadow));
-        rgb = pow(max(rgb, 0.0), vec3(1.0 / 2.2));  // gamma
+        rgb = pow(max(rgb, 0.0), vec3(1.0 / 2.2));  
         fragColor = vec4(rgb, 1.0);
         return;
     }
 
-    // -------- Objects: Blinn-Phong with kd/ks (+ optional normal map) --------
+    
     vec3 N = normalize(fragNormal);
     if (hasNormalMap) {
         vec3 nm = texture(normalMap, fragTexCoord).rgb * 2.0 - 1.0;
@@ -123,15 +123,13 @@ void main()
         rgb += (ambient + diffuse + specular) * lightIntensity[i] * att;
     }
 
-    // Optional environment reflections
     if (enableEnvironmentMap) {
         float refl = clamp(reflectivity, 0.0, 1.0);
-        vec3 I = normalize(fragPosition - viewPosition); // = -V
+        vec3 I = normalize(fragPosition - viewPosition); 
         vec3 R = reflect(I, N);
         vec3 env = texture(environmentMap, R).rgb;
         rgb = mix(rgb, env, refl);
     }
-
-    rgb = pow(max(rgb, 0.0), vec3(1.0 / 2.2));  // gamma
+    rgb = pow(max(rgb, 0.0), vec3(1.0 / 2.2));  
     fragColor = vec4(rgb, 1.0);
 }
